@@ -1,120 +1,71 @@
-//! The Zone — M0 renderer spike.
-//! A Bevy window blitting a colored ASCII `TileGrid` (the renderer seam) with
-//! bold-glyph support, an arrow-key menu, and a hidden-letter area transition.
+//! The Zone — M1 (data-driven skeleton).
+
+mod area;
+mod render;
 
 use bevy::prelude::*;
-use bevy::sprite::Anchor;
-use bevy::text::LineBreak;
 use bevy::window::{PresentMode, WindowResolution};
 
-// ---------- renderer seam: the frame's glyph buffer ----------
-
-#[derive(Clone, Copy)]
-struct Glyph {
-    ch: char,
-    fg: Color,
-    bold: bool,
-}
-
-#[derive(Resource)]
-struct TileGrid {
-    w: usize,
-    cells: Vec<Glyph>,
-}
-
-impl TileGrid {
-    fn new(w: usize, h: usize) -> Self {
-        let blank = Glyph {
-            ch: ' ',
-            fg: Color::srgb(0.25, 0.3, 0.25),
-            bold: false,
-        };
-        Self {
-            w,
-            cells: vec![blank; w * h],
-        }
-    }
-
-    fn set(&mut self, x: usize, y: usize, g: Glyph) {
-        if x < self.w && y * self.w + x < self.cells.len() {
-            self.cells[y * self.w + x] = g;
-        }
-    }
-}
+use area::{build_area_grid, build_inventory_grid, Action, ZoneData};
+use render::{render_grid, TileGrid};
 
 #[derive(Resource, Default)]
 struct MenuSelection(usize);
 
-#[derive(Clone, Copy, PartialEq, Eq, Default)]
-enum AreaId {
-    #[default]
-    Camp,
-    Hatch,
+#[derive(Resource, Default)]
+struct MessageLine(String);
+
+#[derive(Resource)]
+struct CurrentArea(String);
+
+impl FromWorld for CurrentArea {
+    fn from_world(world: &mut World) -> Self {
+        let start = world.resource::<ZoneData>().start.clone();
+        CurrentArea(start)
+    }
 }
 
-#[derive(Resource, Default)]
-struct CurrentArea(AreaId);
+#[derive(States, Default, Debug, Hash, PartialEq, Eq, Clone, Copy)]
+enum GameState {
+    #[default]
+    Area,
+    Inventory,
+}
 
-#[derive(Component)]
-struct AsciiScreen;
-
-const GRID_W: usize = 52;
-const GRID_H: usize = 24;
-
-const CAMP_MENU: &[&str] = &["Travel", "Look", "Talk", "Inventory"];
-const HATCH_MENU: &[&str] = &["Search", "Rest", "Return"];
-
-const CAMP_ART: &[&str] = &[
-    "              .     *",
-    "      .      ( )        *",
-    "          ( moon )    .",
-    "    .        .     .",
-    "",
-    "        /\\            /\\",
-    "       /  \\          /  \\",
-    "      /    \\        /    \\",
-    "     /      \\      /      \\",
-    "    ~~~    ~~~    ~~~    ~~~",
-    "",
-    "              ^",
-    "             ^^^",
-    "              |",
-    "            [D]",
-];
-
-const CAMP_DESC: &[&str] = &[
-    "A camp on the Zone's edge. A fire pops,",
-    "a lantern gutters. Something glints below.",
-];
-
-const HATCH_ART: &[&str] = &[
-    "      ______________________",
-    "     /                      \\",
-    "    |   A cramped bunker.    |",
-    "    |   Shelves, a cot,      |",
-    "    |   a radio hisses.      |",
-    "    |                        |",
-    "    |    (  )   [  ]  [  ]   |",
-    "    |    radio   shelves      |",
-    "    |                        |",
-    "    |        . . .           |",
-    "    |       . glint .        |",
-    "    |        . . .           |",
-    "    |________________________|",
-    "",
-    "    ~ dust motes in the air ~",
-];
-
-const HATCH_DESC: &[&str] = &[
-    "A cramped bunker beneath the camp.",
-    "A radio hisses. Something glints on a shelf.",
+const LETTER_KEYS: [(KeyCode, char); 26] = [
+    (KeyCode::KeyA, 'A'),
+    (KeyCode::KeyB, 'B'),
+    (KeyCode::KeyC, 'C'),
+    (KeyCode::KeyD, 'D'),
+    (KeyCode::KeyE, 'E'),
+    (KeyCode::KeyF, 'F'),
+    (KeyCode::KeyG, 'G'),
+    (KeyCode::KeyH, 'H'),
+    (KeyCode::KeyI, 'I'),
+    (KeyCode::KeyJ, 'J'),
+    (KeyCode::KeyK, 'K'),
+    (KeyCode::KeyL, 'L'),
+    (KeyCode::KeyM, 'M'),
+    (KeyCode::KeyN, 'N'),
+    (KeyCode::KeyO, 'O'),
+    (KeyCode::KeyP, 'P'),
+    (KeyCode::KeyQ, 'Q'),
+    (KeyCode::KeyR, 'R'),
+    (KeyCode::KeyS, 'S'),
+    (KeyCode::KeyT, 'T'),
+    (KeyCode::KeyU, 'U'),
+    (KeyCode::KeyV, 'V'),
+    (KeyCode::KeyW, 'W'),
+    (KeyCode::KeyX, 'X'),
+    (KeyCode::KeyY, 'Y'),
+    (KeyCode::KeyZ, 'Z'),
 ];
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
-                title: "The Zone — M0".into(),
+                title: "The Zone — M1".into(),
                 resolution: WindowResolution::new(1280, 720).with_scale_factor_override(1.0),
                 present_mode: PresentMode::AutoVsync,
                 ..default()
@@ -122,27 +73,53 @@ fn main() {
             ..default()
         }))
         .init_resource::<MenuSelection>()
+        .init_resource::<MessageLine>()
+        .init_resource::<ZoneData>()
         .init_resource::<CurrentArea>()
+        .init_resource::<TileGrid>()
+        .init_state::<GameState>()
         .add_systems(Startup, setup)
-        .add_systems(Update, (menu_input, render_grid).chain())
+        .add_systems(OnEnter(GameState::Area), enter_area)
+        .add_systems(OnEnter(GameState::Inventory), enter_inventory)
+        .add_systems(Update, (menu_input, render_grid).chain().run_if(in_state(GameState::Area)))
+        .add_systems(Update, (inventory_input, render_grid).chain().run_if(in_state(GameState::Inventory)))
         .run();
 }
 
 fn setup(mut commands: Commands) {
     commands.spawn(Camera2d);
-    let mut grid = TileGrid::new(GRID_W, GRID_H);
-    build_grid(&mut grid, 0, AreaId::Camp);
-    commands.insert_resource(grid);
+}
+
+fn enter_area(
+    mut grid: ResMut<TileGrid>,
+    zone: Res<ZoneData>,
+    area: Res<CurrentArea>,
+    sel: Res<MenuSelection>,
+    message: Res<MessageLine>,
+) {
+    build_area_grid(&mut grid, &zone, &area.0, sel.0, &message.0);
+}
+
+fn enter_inventory(mut grid: ResMut<TileGrid>) {
+    build_inventory_grid(&mut grid);
 }
 
 fn menu_input(
     keys: Res<ButtonInput<KeyCode>>,
     mut sel: ResMut<MenuSelection>,
     mut area: ResMut<CurrentArea>,
+    mut message: ResMut<MessageLine>,
     mut grid: ResMut<TileGrid>,
+    zone: Res<ZoneData>,
+    mut next_state: ResMut<NextState<GameState>>,
 ) {
-    let menu = scene(area.0).2;
-    let n = menu.len();
+    if keys.just_pressed(KeyCode::Tab) {
+        next_state.set(GameState::Inventory);
+        return;
+    }
+
+    let data = &zone.areas[area.0.as_str()];
+    let n = data.menu.len();
     let mut changed = false;
 
     if keys.just_pressed(KeyCode::ArrowUp) {
@@ -154,158 +131,49 @@ fn menu_input(
         changed = true;
     }
     if keys.just_pressed(KeyCode::Enter) {
-        if area.0 == AreaId::Hatch && menu[sel.0] == "Return" {
-            area.0 = AreaId::Camp;
+        let action = data.menu[sel.0].1.clone();
+        if run_action(&action, &mut area, &mut message) {
             sel.0 = 0;
-            info!("You climb back out to the camp.");
-        } else {
-            info!("selected: {}", menu[sel.0]);
         }
         changed = true;
     }
-
-    // Hidden letter: type it to immediately enter the secret area.
-    if area.0 == AreaId::Camp && keys.just_pressed(KeyCode::KeyD) {
-        area.0 = AreaId::Hatch;
-        sel.0 = 0;
-        info!("You pry open the hatch and climb down.");
-        changed = true;
+    if let Some(letter) = pressed_letter(&keys) {
+        if let Some(action) = data.secrets.get(&letter).cloned() {
+            if run_action(&action, &mut area, &mut message) {
+                sel.0 = 0;
+            }
+            changed = true;
+        }
     }
 
     if changed {
-        build_grid(&mut grid, sel.0, area.0);
+        build_area_grid(&mut grid, &zone, &area.0, sel.0, &message.0);
     }
 }
 
-fn render_grid(
-    mut commands: Commands,
-    grid: Res<TileGrid>,
-    screens: Query<Entity, With<AsciiScreen>>,
-) {
-    if !grid.is_changed() {
-        return;
-    }
-    for e in &screens {
-        commands.entity(e).despawn(); // recursive: also drops glyph spans
-    }
-    spawn_screen(&mut commands, &grid);
-}
-
-fn spawn_screen(commands: &mut Commands, grid: &TileGrid) {
-    let font = TextFont {
-        font_size: FontSize::Px(20.0),
-        ..default()
-    };
-    let layout = TextLayout::new(Justify::Left, LineBreak::NoWrap);
-
-    commands
-        .spawn((
-            Text2d::new(""),
-            font.clone(),
-            layout,
-            Anchor::TOP_LEFT,
-            Transform::from_translation(Vec3::new(-620.0, 345.0, 0.0)),
-            AsciiScreen,
-        ))
-        .with_children(|parent| {
-            let rows = grid.cells.len() / grid.w;
-            for y in 0..rows {
-                for x in 0..grid.w {
-                    let g = grid.cells[y * grid.w + x];
-                    let color = if g.bold { bold_color(g.fg) } else { g.fg };
-                    parent.spawn((TextSpan::new(g.ch.to_string()), font.clone(), TextColor(color)));
-                }
-                if y + 1 < rows {
-                    parent.spawn((TextSpan::new("\n"), font.clone()));
-                }
-            }
-        });
-}
-
-// ponytail: ANSI-style "bold = bright". Swap for a real bold font asset when
-// the hidden-letter mechanic needs true weight, not just brightness.
-fn bold_color(c: Color) -> Color {
-    let s = c.to_srgba();
-    Color::srgb(s.red * 0.4 + 0.6, s.green * 0.4 + 0.6, s.blue * 0.4 + 0.6)
-}
-
-// (art, description, menu, hidden-letter char) for an area.
-fn scene(area: AreaId) -> (&'static [&'static str], &'static [&'static str], &'static [&'static str], Option<char>) {
-    match area {
-        AreaId::Camp => (CAMP_ART, CAMP_DESC, CAMP_MENU, Some('D')),
-        AreaId::Hatch => (HATCH_ART, HATCH_DESC, HATCH_MENU, None),
-    }
-}
-
-fn build_grid(grid: &mut TileGrid, sel: usize, area: AreaId) {
-    let dim = Color::srgb(0.30, 0.36, 0.30);
-    let ground = Color::srgb(0.55, 0.70, 0.55);
-    let pale = Color::srgb(0.82, 0.82, 0.70);
-    let fire = Color::srgb(1.00, 0.55, 0.20);
-    let smoke = Color::srgb(0.55, 0.55, 0.55);
-    let secret = Color::srgb(0.20, 1.00, 1.00);
-    let desc_col = Color::srgb(0.72, 0.72, 0.62);
-    let menu = Color::srgb(0.70, 0.75, 0.70);
-    let menu_sel = Color::srgb(1.00, 0.95, 0.45);
-
-    for c in grid.cells.iter_mut() {
-        *c = Glyph {
-            ch: ' ',
-            fg: dim,
-            bold: false,
-        };
-    }
-
-    let (art, desc, menu_items, secret_ch) = scene(area);
-
-    // Main window: an ASCII-art scene of the area (no positional map).
-    for (y, line) in art.iter().enumerate() {
-        for (x, ch) in line.chars().enumerate() {
-            let mut g = Glyph {
-                ch,
-                fg: ground,
-                bold: false,
-            };
-            if secret_ch == Some(ch) {
-                g.fg = secret;
-                g.bold = true;
-            } else {
-                match ch {
-                    ' ' => g.fg = dim,
-                    '*' | '(' | ')' => g.fg = pale,
-                    '^' => g.fg = fire,
-                    '~' => g.fg = smoke,
-                    _ => {}
-                }
-            }
-            grid.set(x, y, g);
+fn run_action(action: &Action, area: &mut CurrentArea, message: &mut MessageLine) -> bool {
+    match action {
+        Action::Travel(dest) => {
+            area.0 = dest.clone();
+            message.0.clear();
+            true
+        }
+        Action::Say(s) => {
+            message.0 = s.clone();
+            false
         }
     }
+}
 
-    // Area description, below the art.
-    let desc_y = art.len() + 1;
-    for (dy, line) in desc.iter().enumerate() {
-        for (x, ch) in line.chars().enumerate() {
-            grid.set(x, desc_y + dy, Glyph { ch, fg: desc_col, bold: false });
-        }
+fn inventory_input(keys: Res<ButtonInput<KeyCode>>, mut next_state: ResMut<NextState<GameState>>) {
+    if keys.just_pressed(KeyCode::Escape) || keys.just_pressed(KeyCode::Tab) {
+        next_state.set(GameState::Area);
     }
+}
 
-    // Contextual menu, below the description.
-    let menu_y = desc_y + desc.len() + 1;
-    for (i, label) in menu_items.iter().enumerate() {
-        let y = menu_y + i;
-        let fg = if i == sel { menu_sel } else { menu };
-        let prefix = if i == sel { "> " } else { "  " };
-        for (dx, ch) in prefix.chars().enumerate() {
-            grid.set(dx, y, Glyph { ch, fg, bold: false });
-        }
-        for (dx, ch) in label.chars().enumerate() {
-            grid.set(2 + dx, y, Glyph { ch, fg, bold: false });
-        }
-    }
-
-    let hint = "[arrows] select  [enter] confirm";
-    for (x, ch) in hint.chars().enumerate() {
-        grid.set(x, GRID_H - 1, Glyph { ch, fg: menu, bold: false });
-    }
+fn pressed_letter(keys: &ButtonInput<KeyCode>) -> Option<char> {
+    LETTER_KEYS
+        .iter()
+        .find(|(k, _)| keys.just_pressed(*k))
+        .map(|(_, c)| *c)
 }

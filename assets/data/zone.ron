@@ -1,0 +1,39 @@
+Zone(
+    start: "camp",
+    areas: {
+        "camp": Area(
+            name: "Base Camp",
+            art: "camp",
+            shelter: true,
+            menu: [
+                ("Travel", Travel("road")),
+                ("Look", Say("The fire pops. The lantern gutters.")),
+                ("Talk", Say("Nobody here but you and the wind.")),
+            ],
+            secrets: {
+                'D': Secret(action: Travel("hatch")),
+            },
+        ),
+        "hatch": Area(
+            name: "The Hatch",
+            art: "hatch",
+            shelter: true,
+            menu: [
+                ("Search", Say("You find nothing but dust.")),
+                ("Return", Travel("camp")),
+            ],
+            secrets: {},
+        ),
+        "road": Area(
+            name: "The Road",
+            art: "road",
+            shelter: false,
+            menu: [
+                ("Travel", Travel("camp")),
+                ("Look", Say("The road runs east, toward the wastes.")),
+                ("Search", Say("You find a spent cartridge.")),
+            ],
+            secrets: {},
+        ),
+    },
+)

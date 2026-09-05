@@ -18,22 +18,22 @@ hidden-letter secrets · **Bevy text pass, not a glyph atlas** (locked in M0, se
 
 ## 0. Where we are (2026-09-05)
 
-`src/main.rs` (311 lines, one file, builds and runs on Bevy 0.19.1): a 52×24 `TileGrid`
-blitted as one `Text2d` with a `TextSpan` per cell, redrawn only when the grid changes;
-an arrow-key menu; two hard-coded areas (Camp, Hatch); one hidden letter `D` in the
-camp art that drops you into the Hatch; `Return` climbs back out. "Bold" is rendered as
-brightness (ANSI-style), not a bold font.
+Three modules — `main.rs` (app, states, input), `render.rs` (glyph, palette, renderer),
+`area.rs` (loaders, scene build) — on Bevy 0.19.1, fully data-driven. An 80×30
+`TileGrid` blitted as one `Text2d` with a `TextSpan` per cell; one `Palette` const (no
+color literals); screen origin derived from the window size. `States { Area, Inventory }`
+with a `Tab`/`Esc` overlay; `MessageLine` at row 27; footer at row 29. Areas load from
+`assets/data/zone.ron` + `areas/*.area` (`{X}` markers, ASCII + duplicate validation).
+Three areas — camp (hidden `D` → hatch), hatch, road (menu `Travel` exit) — so travel
+works both ways: menu exit and secret letter. `serde` + `ron` are direct deps (already
+cached as Bevy transitive deps; no extra fetch was needed).
 
-**M0 is done. M1 is about half done.** What M1 still needs: game `States`, the
-persistent footer, a message line, and moving the two areas out of `const` arrays into
-`assets/` files. Details in §8.
+**M0 and M1 are done.** Loader tests green: marker parsing, duplicate rejection, and a
+real `zone.ron` load. M2 is next (character, inventory & trade).
 
-Known deviations from the plan, decided (not accidents):
-- Hidden letters are found by **char match across the art** (`secret_ch == Some(ch)`),
-  not by grid position. Fine while each secret letter appears once; §6 replaces it with
-  an in-art marker before a second area lands.
-- Menu items other than `Return` only log to the console. That is the M1 message line.
-- No git history yet — everything is untracked. First action of M1 is a commit.
+Deliberate simplifications, documented in code:
+- The secret `gate` field is omitted until gated secrets land in M3.
+- `#!` color-override lines in `.area` files are not implemented yet (no override needed).
 
 ---
 
@@ -301,17 +301,17 @@ This is what lets the game grow into "content" instead of "code" after M5.
 
 - [x] **M0 — Renderer spike.** Bevy window blitting a colored ASCII `TileGrid` with
   bold glyph support + one working menu. Text-pass choice locked. *(Done, 2026-09.)*
-- [ ] **M1 — Skeleton.** In order:
-  1. `git add -A && git commit` (include `Cargo.lock`; it's a binary).
-  2. `MessageLine` resource drawn above the footer; replace the `info!` calls.
-  3. Persistent footer row + `States { Area, Inventory }` with an empty Inventory overlay
-     (`Tab` in, `Esc` out) to prove modal screens.
-  4. Move Camp/Hatch into `assets/data/areas/*.area` + `zone.ron`; `{D}` marker
+- [x] **M1 — Skeleton.** In order:
+  1. [x] `git add -A && git commit` (include `Cargo.lock`; it's a binary).
+  2. [x] `MessageLine` resource drawn above the footer; replace the `info!` calls.
+  3. [x] Persistent footer row + `States { Area, Inventory }` with an empty Inventory
+     overlay (`Tab` in, `Esc` out) to prove modal screens.
+  4. [x] Move Camp/Hatch into `assets/data/areas/*.area` + `zone.ron`; `{D}` marker
      replaces char-match; loader asserts unique letters. Add `serde`, `ron`.
-  5. 80×30 grid, translation derived from window size. Delete the hard-coded
+  5. [x] 80×30 grid, translation derived from window size. Delete the hard-coded
      `KeyCode::KeyD` branch: map any pressed letter → the area's hidden table.
-  6. One more anomaly-free area with a visible `Travel` exit, so travel has two kinds
-     (menu exit and secret) — that's the M1 acceptance test.
+  6. [x] One more anomaly-free area with a visible `Travel` exit, so travel has two
+     kinds (menu exit and secret) — that's the M1 acceptance test.
 - [ ] **M2 — Character, inventory & trade.** Creation screen, stats/skills, `check()`,
   items, equip/use menu, and **a working vendor at the camp** (buy/sell with Barter + rep
   modifiers). Self-checks: price math (buy > sell; Barter/rep shift the margin) and the
