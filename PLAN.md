@@ -106,9 +106,10 @@ free.
 **Rendering — decided in M0: Bevy's text pass.** One `TileGrid` resource
 (`Vec<Glyph>`, `Glyph = char + fg + bold`) rebuilt by `build_grid` whenever the scene
 changes, and one `render_grid` system that, **only when the grid is `is_changed()`**,
-despawns the screen entity and respawns a `Text2d` with one `TextSpan` per cell.
-`ponytail:` full respawn on every change is O(cells); fine for a menu game that
-redraws on keypress, revisit only if we ever animate per-frame.
+despawns the screen entity and respawns a `Text2d` with one `TextSpan` per same-color
+run (consecutive equal-color glyphs are merged). `ponytail:` full respawn on every
+change is O(cells); per-cell spans made a keypress redraw lag, so runs fixed it —
+revisit only if we ever animate per-frame.
 
 - **Bold = brighter color** (`bold_color`), not a bold font. Good enough for "the cyan
   letter pops". A real bold face is a later asset drop, not a rewrite.

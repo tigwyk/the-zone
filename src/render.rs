@@ -131,16 +131,33 @@ fn spawn_screen(commands: &mut Commands, grid: &TileGrid, win: &Window) {
             AsciiScreen,
         ))
         .with_children(|parent| {
+            // Merge consecutive same-color glyphs into runs: per-cell spans made a full
+            // redraw despawn ~2,400 entities and re-layout them all, lagging keypresses.
             let rows = grid.cells.len() / grid.w;
+            let mut run = String::new();
+            let mut cur: Option<Color> = None;
             for y in 0..rows {
                 for x in 0..grid.w {
                     let g = grid.cells[y * grid.w + x];
                     let color = if g.bold { bold_color(g.fg) } else { g.fg };
-                    parent.spawn((TextSpan::new(g.ch.to_string()), font.clone(), TextColor(color)));
+                    if cur != Some(color) {
+                        if let Some(c) = cur {
+                            parent.spawn((
+                                TextSpan::new(std::mem::take(&mut run)),
+                                font.clone(),
+                                TextColor(c),
+                            ));
+                        }
+                        cur = Some(color);
+                    }
+                    run.push(g.ch);
                 }
                 if y + 1 < rows {
-                    parent.spawn((TextSpan::new("\n"), font.clone()));
+                    run.push('\n');
                 }
+            }
+            if let Some(c) = cur {
+                parent.spawn((TextSpan::new(run), font.clone(), TextColor(c)));
             }
         });
 }
