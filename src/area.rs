@@ -1,4 +1,4 @@
-//! Area data, the `.area`/`zone.ron` loaders, and the scene build functions.
+//! Area data, the `.area`/`zone.ron` loaders, and the area scene build function.
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -8,13 +8,13 @@ use bevy::prelude::*;
 use serde::Deserialize;
 
 use crate::render::{Glyph, TileGrid, PALETTE};
+use crate::run::RunState;
+use crate::screens::draw_chrome;
 
 // Fixed row map (SPEC §4): art 0–17, desc 19–20, menu 22–26, message 27, status 28, footer 29.
 const DESC_ROW: usize = 19;
 const MENU_ROW: usize = 22;
-const MESSAGE_ROW: usize = 27;
-const STATUS_ROW: usize = 28;
-const FOOTER_ROW: usize = 29;
+pub(crate) const MESSAGE_ROW: usize = 27;
 
 // ---- zone.ron model (SPEC §5.2) ----
 
@@ -22,6 +22,10 @@ const FOOTER_ROW: usize = 29;
 struct Zone {
     start: String,
     areas: HashMap<String, Area>,
+    #[serde(default)]
+    items: HashMap<String, ItemData>,
+    #[serde(default)]
+    vendors: HashMap<String, VendorData>,
 }
 
 #[derive(Deserialize)]
@@ -45,6 +49,34 @@ struct Secret {
 pub(crate) enum Action {
     Travel(String),
     Say(String),
+    Rest,
+    Trade(String),
+}
+
+#[derive(Deserialize, Clone)]
+#[serde(rename = "Item")]
+pub(crate) struct ItemData {
+    pub name: String,
+    pub base: u32,
+    pub kind: ItemKind,
+}
+
+#[derive(Deserialize, Clone, Copy, PartialEq)]
+pub(crate) enum ItemKind {
+    Heal(i32),
+    Antirad(i32),
+    Weapon(i32),
+    Armor(i32),
+    Misc,
+}
+
+#[derive(Deserialize, Clone)]
+#[serde(rename = "Vendor")]
+pub(crate) struct VendorData {
+    pub name: String,
+    pub faction: String,
+    pub markup: f32,
+    pub stock: Vec<(String, u32)>,
 }
 
 // name/shelter are read by later milestones (status/map, M3 emissions).
@@ -63,11 +95,31 @@ pub(crate) struct AreaData {
 pub(crate) struct ZoneData {
     pub start: String,
     pub areas: HashMap<String, AreaData>,
+    pub items: HashMap<String, ItemData>,
+    pub vendors: HashMap<String, VendorData>,
 }
 
 impl FromWorld for ZoneData {
     fn from_world(_world: &mut World) -> Self {
         load_zone(Path::new("assets/data"))
+    }
+}
+
+/// Live vendor inventories, seeded from `zone.ron` at startup. Separate from
+/// `ZoneData` because stock changes as the player trades.
+/// `ponytail:` no restock roll yet — the stock table lands with the clock in M3.
+#[derive(Resource)]
+pub(crate) struct VendorStock(pub HashMap<String, Vec<(String, u32)>>);
+
+impl FromWorld for VendorStock {
+    fn from_world(world: &mut World) -> Self {
+        let zone = world.resource::<ZoneData>();
+        VendorStock(
+            zone.vendors
+                .iter()
+                .map(|(id, v)| (id.clone(), v.stock.clone()))
+                .collect(),
+        )
     }
 }
 
@@ -112,9 +164,46 @@ pub(crate) fn load_zone(data_dir: &Path) -> ZoneData {
         "zone.ron: start area '{}' not found",
         zone.start
     );
-    ZoneData {
+    let data = ZoneData {
         start: zone.start,
         areas,
+        items: zone.items,
+        vendors: zone.vendors,
+    };
+    data.validate_ids();
+    data
+}
+
+impl ZoneData {
+    /// Every id an action or a vendor names must exist (SPEC §5.3).
+    fn validate_ids(&self) {
+        let check = |action: &Action, where_: &str| match action {
+            Action::Travel(dest) => assert!(
+                self.areas.contains_key(dest),
+                "zone.ron: {where_} travels to unknown area '{dest}'"
+            ),
+            Action::Trade(v) => assert!(
+                self.vendors.contains_key(v),
+                "zone.ron: {where_} trades with unknown vendor '{v}'"
+            ),
+            Action::Say(_) | Action::Rest => {}
+        };
+        for (id, area) in &self.areas {
+            for (label, action) in &area.menu {
+                check(action, &format!("{id}/{label}"));
+            }
+            for (letter, action) in &area.secrets {
+                check(action, &format!("{id}/'{letter}'"));
+            }
+        }
+        for (id, v) in &self.vendors {
+            for (item, _) in &v.stock {
+                assert!(
+                    self.items.contains_key(item),
+                    "zone.ron: vendor '{id}' stocks unknown item '{item}'"
+                );
+            }
+        }
     }
 }
 
@@ -225,18 +314,12 @@ fn strip_markers(line: &str, path: &Path, row: usize) -> (String, Vec<(usize, ch
 pub(crate) fn build_area_grid(
     grid: &mut TileGrid,
     zone: &ZoneData,
+    run: &RunState,
     area_id: &str,
     sel: usize,
     message: &str,
 ) {
-    for c in grid.cells.iter_mut() {
-        *c = Glyph {
-            ch: ' ',
-            fg: PALETTE.dim,
-            bold: false,
-        };
-    }
-
+    grid.clear();
     let area = &zone.areas[area_id];
 
     // Art rows 0–17.
@@ -257,47 +340,19 @@ pub(crate) fn build_area_grid(
 
     // Description rows 19–20.
     for (dy, line) in area.desc.iter().enumerate() {
-        for (x, ch) in line.chars().enumerate() {
-            grid.set(x, DESC_ROW + dy, Glyph { ch, fg: PALETTE.desc, bold: false });
-        }
+        grid.text(0, DESC_ROW + dy, line, PALETTE.desc, false);
     }
 
     // Menu rows 22–26.
     for (i, (label, _)) in area.menu.iter().enumerate() {
-        let y = MENU_ROW + i;
         let fg = if i == sel { PALETTE.menu_sel } else { PALETTE.menu };
         let prefix = if i == sel { "> " } else { "  " };
-        for (dx, ch) in prefix.chars().enumerate() {
-            grid.set(dx, y, Glyph { ch, fg, bold: false });
-        }
-        for (dx, ch) in label.chars().enumerate() {
-            grid.set(2 + dx, y, Glyph { ch, fg, bold: false });
-        }
+        grid.text(0, MENU_ROW + i, prefix, fg, false);
+        grid.text(2, MENU_ROW + i, label, fg, false);
     }
 
-    // Message row 27.
-    for (x, ch) in message.chars().enumerate() {
-        grid.set(x, MESSAGE_ROW, Glyph { ch, fg: PALETTE.desc, bold: false });
-    }
-
-    draw_chrome(grid);
-}
-
-pub(crate) fn build_inventory_grid(grid: &mut TileGrid) {
-    for c in grid.cells.iter_mut() {
-        *c = Glyph {
-            ch: ' ',
-            fg: PALETTE.dim,
-            bold: false,
-        };
-    }
-    for (x, ch) in "INVENTORY".chars().enumerate() {
-        grid.set(x, 0, Glyph { ch, fg: PALETTE.menu_sel, bold: true });
-    }
-    for (x, ch) in "Nothing carried.".chars().enumerate() {
-        grid.set(x, 2, Glyph { ch, fg: PALETTE.desc, bold: false });
-    }
-    draw_chrome(grid);
+    grid.text(0, MESSAGE_ROW, message, PALETTE.desc, false);
+    draw_chrome(grid, run);
 }
 
 // Character class -> palette color (SPEC §5.1). Anomaly tells render amber.
@@ -308,19 +363,6 @@ fn class_color(ch: char) -> Color {
         '^' => PALETTE.fire,
         '*' | '+' | '@' | '.' | ':' => PALETTE.amber,
         _ => PALETTE.ground,
-    }
-}
-
-fn draw_chrome(grid: &mut TileGrid) {
-    // Status row 28 — placeholder until RunState lands (M2).
-    let status = "  HP --  RAD --  AP --  Day --";
-    for (x, ch) in status.chars().enumerate() {
-        grid.set(x, STATUS_ROW, Glyph { ch, fg: PALETTE.status, bold: false });
-    }
-    // Footer row 29.
-    let footer = "Tab Inventory   F1 Status   F2 Map   F3 Journal   F5 Save   Esc Back";
-    for (x, ch) in footer.chars().enumerate() {
-        grid.set(x, FOOTER_ROW, Glyph { ch, fg: PALETTE.menu, bold: false });
     }
 }
 
@@ -354,5 +396,7 @@ mod tests {
         assert_eq!(zone.areas.len(), 3);
         assert!(zone.areas["camp"].secrets.contains_key(&'D'));
         assert_eq!(zone.areas["camp"].secret_cells, vec![(13, 14, 'D')]);
+        assert!(zone.vendors.contains_key("trader"));
+        assert!(zone.items.contains_key("medkit"));
     }
 }

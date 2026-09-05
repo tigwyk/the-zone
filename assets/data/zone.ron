@@ -7,8 +7,10 @@ Zone(
             shelter: true,
             menu: [
                 ("Travel", Travel("road")),
+                ("Trade", Trade("trader")),
+                ("Rest", Rest),
                 ("Look", Say("The fire pops. The lantern gutters.")),
-                ("Talk", Say("Nobody here but you and the wind.")),
+                ("Talk", Say("The trader grunts. That is the whole conversation.")),
             ],
             secrets: {
                 'D': Secret(action: Travel("hatch")),
@@ -34,6 +36,34 @@ Zone(
                 ("Search", Say("You find a spent cartridge.")),
             ],
             secrets: {},
+        ),
+    },
+    // ponytail: items and vendors live here until a section outgrows a screen (SPEC §5.3).
+    items: {
+        "medkit": Item(name: "Medkit", base: 250, kind: Heal(25)),
+        "bandage": Item(name: "Bandage", base: 60, kind: Heal(8)),
+        "antirad": Item(name: "Antirad", base: 300, kind: Antirad(150)),
+        "bread": Item(name: "Stale Loaf", base: 40, kind: Heal(4)),
+        "bolt": Item(name: "Bolt", base: 5, kind: Misc),
+        "pistol": Item(name: "PMm Pistol", base: 900, kind: Weapon(8)),
+        "jacket": Item(name: "Leather Jacket", base: 400, kind: Armor(2)),
+        "vest": Item(name: "Stalker Vest", base: 1400, kind: Armor(5)),
+    },
+    vendors: {
+        "trader": Vendor(
+            name: "Sidorovich",
+            faction: "loners",
+            markup: 1.0,
+            stock: [
+                ("medkit", 3),
+                ("bandage", 6),
+                ("antirad", 2),
+                ("bread", 4),
+                ("bolt", 20),
+                ("pistol", 1),
+                ("jacket", 1),
+                ("vest", 1),
+            ],
         ),
     },
 )

@@ -22,7 +22,8 @@ before editing. [GDD.md](GDD.md) says what the game is; this says how it is buil
 src/main.rs        app setup, states, systems registration
 src/render.rs      Glyph, TileGrid, Palette, render_grid          (split in M1)
 src/area.rs        .area loader, zone.ron loader, scene build_grid (split in M1)
-src/run.rs         RunState and the check() function             (M2)
+src/run.rs         RunState, Rng, check(), price()                    (M2)
+src/screens.rs     modal screens (creation, inventory, trade) + chrome (M2)
 assets/data/       all game content — see §5
 PLAN.md GDD.md SPEC.md
 ```
@@ -137,6 +138,25 @@ Zone(
 | `Jobs(FactionId)` | M5 | job board |
 | `Scan`, `ThrowBolt`, `PushThrough`, `TakeArtifact` | M3 | anomaly field verbs |
 | `SetFlag(String)` | M3 | quest/secret flag |
+
+Items and vendors sit in the same file (SPEC §5.3 carves them out later):
+
+```ron
+    items: {
+        "medkit": Item(name: "Medkit", base: 250, kind: Heal(25)),
+        "pistol": Item(name: "PMm Pistol", base: 900, kind: Weapon(8)),
+        "jacket": Item(name: "Leather Jacket", base: 400, kind: Armor(2)),
+        "bolt":   Item(name: "Bolt", base: 5, kind: Misc),
+    },
+    vendors: {
+        "trader": Vendor(name: "Sidorovich", faction: "loners", markup: 1.0,
+                         stock: [("medkit", 3), ("bolt", 20)]),
+    },
+```
+
+`ItemKind`: `Heal(i32)`, `Antirad(i32)`, `Weapon(i32)` (damage), `Armor(i32)`
+(damage resistance), `Misc`. Vendor `stock` is the starting shelf; the live shelf is
+the `VendorStock` resource, so trading does not mutate loaded data.
 
 `Gate`: `None`, `Check(Skill, i32)` (rolled once per run on first entry),
 `Flag(String)`, `Rep(FactionId, i32)`.

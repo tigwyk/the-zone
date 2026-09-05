@@ -1,0 +1,360 @@
+//! The stalker: `RunState`, backgrounds, the seeded RNG, the d100 `check()`
+//! and the one `price()` formula (SPEC §3).
+
+use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use bevy::prelude::*;
+
+// ---- attributes & skills (GDD §4) ----
+
+pub(crate) const STR: usize = 0;
+pub(crate) const PER: usize = 1;
+pub(crate) const END: usize = 2;
+pub(crate) const CHA: usize = 3;
+pub(crate) const INT: usize = 4;
+pub(crate) const AGI: usize = 5;
+
+pub(crate) const ATTR_NAMES: [&str; 7] = ["STR", "PER", "END", "CHA", "INT", "AGI", "LCK"];
+
+pub(crate) const SKILL_NAMES: [&str; 10] = [
+    "Small Guns",
+    "Energy Weapons",
+    "Melee",
+    "Sneak",
+    "Medicine",
+    "Repair",
+    "Lockpick",
+    "Science",
+    "Stalker Lore",
+    "Barter",
+];
+
+/// Governing attribute per skill (GDD §4). Starting skill = 10 + 3 × attribute.
+const SKILL_ATTR: [usize; 10] = [AGI, INT, STR, AGI, INT, INT, PER, INT, PER, CHA];
+
+pub(crate) const BARTER: usize = 9;
+
+// GDD §4: attributes start at 5, tags give +15, HP = 20 + 3 × END.
+const ATTR_BASE: i32 = 5;
+const TAG_BONUS: i32 = 15;
+pub(crate) const TAG_COUNT: usize = 3;
+
+// ---- backgrounds (GDD §4) ----
+
+pub(crate) struct Background {
+    pub name: &'static str,
+    pub blurb: &'static str,
+    pub attr: (usize, i32),
+    pub skills: &'static [(usize, i32)],
+    pub rep: &'static [(&'static str, i32)],
+}
+
+// ponytail: all four are selectable now; the Ecologist/Bandit unlock conditions
+// need MetaProgress, which lands with permadeath in M6.
+pub(crate) const BACKGROUNDS: [Background; 4] = [
+    Background {
+        name: "Loner",
+        blurb: "You came for the money and stayed for the quiet.",
+        attr: (END, 1),
+        skills: &[(8, 10)],
+        rep: &[("loners", 20)],
+    },
+    Background {
+        name: "ex-Duty",
+        blurb: "You wore the black and red until the orders stopped making sense.",
+        attr: (STR, 1),
+        skills: &[(0, 10)],
+        rep: &[("duty", 30), ("freedom", -20)],
+    },
+    Background {
+        name: "Ecologist",
+        blurb: "You read the Zone in numbers before you ever smelled it.",
+        attr: (INT, 1),
+        skills: &[(7, 10), (4, 10)],
+        rep: &[("ecologists", 30)],
+    },
+    Background {
+        name: "Bandit",
+        blurb: "Somebody else's kit paid for your first trip in.",
+        attr: (AGI, 1),
+        skills: &[(3, 10), (9, 10)],
+        rep: &[("bandits", 30), ("loners", -20)],
+    },
+];
+
+// ---- the run ----
+
+// Starting kit (GDD §7). Rest: 8 h at a sheltered camp.
+const START_RUBLES: u32 = 600;
+const START_KIT: [(&str, u32); 3] = [("medkit", 1), ("bread", 2), ("bolt", 5)];
+const START_MINUTES: u32 = 6 * 60;
+pub(crate) const REST_MINUTES: u32 = 8 * 60;
+pub(crate) const REST_COST: u32 = 50;
+pub(crate) const REST_RADS: i32 = 100;
+
+#[derive(Resource, Default)]
+pub(crate) struct RunState {
+    pub background: usize,
+    pub attrs: [i32; 7],
+    pub skills: [i32; 10],
+    pub tags: [bool; 10],
+    pub hp: i32,
+    pub max_hp: i32,
+    pub rads: i32,
+    pub rubles: u32,
+    pub items: Vec<(String, u32)>,
+    pub weapon: Option<String>,
+    pub armor: Option<String>,
+    pub rep: HashMap<String, i32>,
+    /// Minutes since day 1, 00:00.
+    pub minutes: u32,
+}
+
+impl RunState {
+    pub fn roll(background: usize, tags: &[usize]) -> Self {
+        let bg = &BACKGROUNDS[background];
+        let mut attrs = [ATTR_BASE; 7];
+        attrs[bg.attr.0] += bg.attr.1;
+
+        let mut skills = [0; 10];
+        for (i, s) in skills.iter_mut().enumerate() {
+            *s = 10 + 3 * attrs[SKILL_ATTR[i]];
+        }
+        for &(i, bonus) in bg.skills {
+            skills[i] += bonus;
+        }
+        let mut tag_flags = [false; 10];
+        for &t in tags {
+            skills[t] += TAG_BONUS;
+            tag_flags[t] = true;
+        }
+
+        let max_hp = 20 + 3 * attrs[END];
+        RunState {
+            background,
+            attrs,
+            skills,
+            tags: tag_flags,
+            hp: max_hp,
+            max_hp,
+            rads: 0,
+            rubles: START_RUBLES,
+            items: START_KIT.iter().map(|&(id, n)| (id.to_string(), n)).collect(),
+            weapon: None,
+            armor: None,
+            rep: bg.rep.iter().map(|&(f, r)| (f.to_string(), r)).collect(),
+            minutes: START_MINUTES,
+        }
+    }
+
+    pub fn day(&self) -> u32 {
+        self.minutes / 1440 + 1
+    }
+
+    pub fn clock(&self) -> String {
+        let m = self.minutes % 1440;
+        format!("{:02}:{:02}", m / 60, m % 60)
+    }
+
+    pub fn rep_of(&self, faction: &str) -> i32 {
+        self.rep.get(faction).copied().unwrap_or(0)
+    }
+
+    pub fn add_item(&mut self, id: &str, n: u32) {
+        match self.items.iter_mut().find(|(i, _)| i == id) {
+            Some(slot) => slot.1 += n,
+            None => self.items.push((id.to_string(), n)),
+        }
+    }
+
+    /// Removes `n` of `id`; returns false (and changes nothing) if there aren't enough.
+    pub fn take_item(&mut self, id: &str, n: u32) -> bool {
+        let Some(i) = self.items.iter().position(|(x, c)| x == id && *c >= n) else {
+            return false;
+        };
+        self.items[i].1 -= n;
+        if self.items[i].1 == 0 {
+            if self.weapon.as_deref() == Some(id) {
+                self.weapon = None;
+            }
+            if self.armor.as_deref() == Some(id) {
+                self.armor = None;
+            }
+            self.items.remove(i);
+        }
+        true
+    }
+}
+
+// ---- randomness (SPEC §3: one seeded Rng, no thread_rng) ----
+
+/// xorshift64. `ponytail:` a dice RNG is six lines; pull in `rand` only if we ever
+/// need distributions beyond "roll a die".
+#[derive(Resource)]
+pub(crate) struct Rng {
+    state: u64,
+    #[allow(dead_code)] // read by the suspend file in M6 so a run can be replayed
+    pub seed: u64,
+}
+
+impl Rng {
+    pub fn new(seed: u64) -> Self {
+        let seed = seed | 1;
+        Rng { state: seed, seed }
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        let mut x = self.state;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.state = x;
+        x
+    }
+
+    pub fn roll(&mut self, sides: u32) -> u32 {
+        (self.next_u64() >> 33) as u32 % sides + 1
+    }
+}
+
+impl Default for Rng {
+    fn default() -> Self {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0x5EED);
+        Rng::new(nanos)
+    }
+}
+
+// ---- the check (GDD §4) ----
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub(crate) enum Outcome {
+    CritFail,
+    Fail,
+    Success,
+    CritSuccess,
+}
+
+// Difficulty modifiers (GDD §4); the first callers are the gated secrets in M3.
+#[allow(dead_code)]
+pub(crate) const DIFF_EASY: i32 = 20;
+#[allow(dead_code)]
+pub(crate) const DIFF_HARD: i32 = -20;
+#[allow(dead_code)]
+pub(crate) const DIFF_VERY_HARD: i32 = -40;
+
+/// The only d100 roll-under in the game. First gameplay caller is the gated
+/// hidden letter in M3; the crit edges are pinned by a test now.
+#[allow(dead_code)]
+pub(crate) fn check(skill: i32, modifier: i32, rng: &mut Rng) -> Outcome {
+    outcome(rng.roll(100), skill, modifier)
+}
+
+fn outcome(roll: u32, skill: i32, modifier: i32) -> Outcome {
+    match roll {
+        1 => Outcome::CritSuccess,
+        100 => Outcome::CritFail,
+        r if r as i32 <= skill + modifier => Outcome::Success,
+        _ => Outcome::Fail,
+    }
+}
+
+// ---- prices (GDD §7) ----
+
+/// Rep tiers (GDD §9) -> (buy multiplier, sell multiplier). `None` = refuses to trade.
+fn rep_mult(rep: i32) -> Option<(f32, f32)> {
+    match rep {
+        r if r < -50 => None,
+        r if r < -10 => Some((1.25, 0.8)),
+        r if r > 75 => Some((0.8, 1.2)),
+        r if r > 25 => Some((0.9, 1.1)),
+        _ => Some((1.0, 1.0)),
+    }
+}
+
+/// buy  = base × markup × (1.5 − barter/200) × rep_buy
+/// sell = base × markup × (0.5 + barter/400) × rep_sell   (GDD §7)
+pub(crate) fn price(base: u32, markup: f32, barter: i32, rep: i32, buying: bool) -> Option<u32> {
+    let (rb, rs) = rep_mult(rep)?;
+    let barter = barter.clamp(0, 100) as f32;
+    let p = if buying {
+        base as f32 * markup * (1.5 - barter / 200.0) * rb
+    } else {
+        base as f32 * markup * (0.5 + barter / 400.0) * rs
+    };
+    Some((p.round() as u32).max(1))
+}
+
+// ---- tests (SPEC §7) ----
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn d100_crit_edges() {
+        // 1 always crits up and 100 always crits down, whatever the skill.
+        assert_eq!(outcome(1, 0, -40), Outcome::CritSuccess);
+        assert_eq!(outcome(100, 100, 20), Outcome::CritFail);
+        assert_eq!(outcome(50, 50, 0), Outcome::Success);
+        assert_eq!(outcome(51, 50, 0), Outcome::Fail);
+        assert_eq!(outcome(51, 50, 20), Outcome::Success);
+    }
+
+    #[test]
+    fn d100_stays_in_range() {
+        let mut rng = Rng::new(12345);
+        for _ in 0..1000 {
+            let r = rng.roll(100);
+            assert!((1..=100).contains(&r));
+        }
+    }
+
+    #[test]
+    fn price_buy_above_sell_and_modifiers_point_the_right_way() {
+        let buy = |b, r| price(100, 1.0, b, r, true).unwrap();
+        let sell = |b, r| price(100, 1.0, b, r, false).unwrap();
+
+        assert!(buy(0, 0) > sell(0, 0));
+        assert!(buy(100, 0) > sell(100, 0));
+        assert_eq!((buy(0, 0), sell(0, 0)), (150, 50)); // GDD §7 anchors
+        assert_eq!((buy(100, 0), sell(100, 0)), (100, 75));
+
+        // Barter: buying gets cheaper, selling pays better.
+        assert!(buy(80, 0) < buy(20, 0));
+        assert!(sell(80, 0) > sell(20, 0));
+
+        // Rep: friendlier is cheaper to buy from and pays more.
+        assert!(buy(50, 80) < buy(50, 0));
+        assert!(sell(50, 80) > sell(50, 0));
+        assert!(buy(50, -20) > buy(50, 0));
+        assert_eq!(price(100, 1.0, 50, -60, true), None); // hostile refuses
+    }
+
+    #[test]
+    fn roll_applies_background_tags_and_kit() {
+        let r = RunState::roll(0, &[8, 9, 4]); // Loner; tag Stalker Lore, Barter, Medicine
+        assert_eq!(r.attrs[END], 6);
+        assert_eq!(r.max_hp, 38);
+        assert_eq!(r.hp, r.max_hp);
+        // Stalker Lore: 10 + 3×PER(5) = 25, +10 background, +15 tag.
+        assert_eq!(r.skills[8], 50);
+        assert_eq!(r.rep_of("loners"), 20);
+        assert_eq!(r.day(), 1);
+        assert_eq!(r.clock(), "06:00");
+    }
+
+    #[test]
+    fn take_item_is_all_or_nothing_and_unequips() {
+        let mut r = RunState::roll(0, &[0, 1, 2]);
+        r.add_item("pistol", 1);
+        r.weapon = Some("pistol".into());
+        assert!(!r.take_item("pistol", 2));
+        assert!(r.take_item("pistol", 1));
+        assert_eq!(r.weapon, None);
+        assert!(!r.items.iter().any(|(i, _)| i == "pistol"));
+    }
+}

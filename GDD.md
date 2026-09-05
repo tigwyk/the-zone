@@ -236,6 +236,11 @@ again. Unsold player items vanish from the vendor's list at restock.
 **Vendors in v1:** the camp Trader (M2), then Doctor, Gunrunner, Barkeep at faction
 posts (M5). They are content rows, not new code.
 
+**Starting kit** (every background): 600 ₽, 1 medkit, 2 loaves, 5 bolts, no weapon or
+armour. You arrive at base camp on day 1 at 06:00.
+
+**Rest** at a sheltered area: 8 h, 50 ₽, heals to full and clears 100 rads.
+
 ---
 
 ## 8. Combat

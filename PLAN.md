@@ -18,24 +18,31 @@ hidden-letter secrets · **Bevy text pass, not a glyph atlas** (locked in M0, se
 
 ## 0. Where we are (2026-09-05)
 
-Three modules — `main.rs` (app, states, input), `render.rs` (glyph, palette, renderer),
-`area.rs` (loaders, scene build) — on Bevy 0.19.1, fully data-driven. An 80×30
-`TileGrid` blitted as one `Text2d` with a `TextSpan` per cell; one `Palette` const (no
-color literals); screen origin derived from the window size. `States { Area, Inventory }`
-with a `Tab`/`Esc` overlay; `MessageLine` at row 27; footer at row 29. Areas load from
-`assets/data/zone.ron` + `areas/*.area` (`{X}` markers, ASCII + duplicate validation).
-Three areas — camp (hidden `D` → hatch), hatch, road (menu `Travel` exit) — so travel
-works both ways: menu exit and secret letter. `serde` + `ron` are direct deps (already
-cached as Bevy transitive deps; no extra fetch was needed).
+Five modules — `main.rs` (app, states, input), `render.rs` (glyph, palette, renderer),
+`area.rs` (loaders, scene build), `run.rs` (the stalker), `screens.rs` (modal screens) —
+on Bevy 0.19.1, fully data-driven. An 80x30 `TileGrid` blitted as one `Text2d` with a
+`TextSpan` per same-colour run; one `Palette` const; screen origin derived from the
+window size. `States { CharacterCreation, Area, Inventory, Trade }`.
 
-**M0 and M1 are done.** Loader tests green: marker parsing, duplicate rejection, and a
-real `zone.ron` load. M2 is next (character, inventory & trade).
+**M0, M1 and M2 are done.** A run now starts at the creation screen (pick a background,
+tag three skills), which rolls a `RunState` — attributes, skills, HP, rads, rubles, a
+starting kit and background faction rep — shown live on the status row. `Tab` opens a
+real inventory (use meds, equip a weapon or armour, read your stats and skills);
+Sidorovich at the camp opens the Trade state (Left/Right buy or sell, prices through the
+one `price()` formula with Barter and rep modifiers, hostile vendors refuse). `Rest`
+costs 50 RU for 8 h, full heal and -100 rads. The d100 `check()` and the seeded `Rng`
+exist with their crit-edge test; the first gameplay caller is the gated secret in M3.
+Thirteen tests green: loader marker parsing and duplicate rejection, a real `zone.ron`
+load, `check()` crit edges, d100 range, price direction and GDD anchors, character roll,
+item removal, the trade round trip, affordability, hostile refusal, healing, and a
+build-every-screen smoke test.
 
 Deliberate simplifications, documented in code:
+- No `rand` dependency: a six-line seeded xorshift covers d100 (`ponytail:` in `run.rs`).
+- No vendor restock roll yet — it belongs with the clock in M3.
+- All four backgrounds are selectable; their unlock conditions need `MetaProgress` (M6).
 - The secret `gate` field is omitted until gated secrets land in M3.
 - `#!` color-override lines in `.area` files are not implemented yet (no override needed).
-
----
 
 ## 1. One-paragraph pitch
 
@@ -125,7 +132,8 @@ revisit only if we ever animate per-frame.
 **Dependencies (keep minimal, add at the milestone that needs them):**
 - `bevy` — now.
 - `serde` + `ron` — M1, when areas leave `main.rs`.
-- `rand` — M2, for the first skill check. (Bevy 0.19 does not re-export a dice RNG.)
+- `rand` — **not taken.** A seeded xorshift d100 is six lines in `run.rs`; revisit only
+  if we need real distributions.
 - `bevy_kira_audio` — M7. Skip `egui`; the menu is a hand-rolled list.
 
 ---
@@ -313,10 +321,10 @@ This is what lets the game grow into "content" instead of "code" after M5.
      `KeyCode::KeyD` branch: map any pressed letter → the area's hidden table.
   6. [x] One more anomaly-free area with a visible `Travel` exit, so travel has two
      kinds (menu exit and secret) — that's the M1 acceptance test.
-- [ ] **M2 — Character, inventory & trade.** Creation screen, stats/skills, `check()`,
+- [x] **M2 — Character, inventory & trade.** Creation screen, stats/skills, `check()`,
   items, equip/use menu, and **a working vendor at the camp** (buy/sell with Barter + rep
   modifiers). Self-checks: price math (buy > sell; Barter/rep shift the margin) and the
-  d100 crit edges.
+  d100 crit edges. *(Done, 2026-09.)*
 - [ ] **M3 — The Zone breathes.** Anomaly-field areas + bolts + detection, artifacts,
   radiation, day/night + emission; gated hidden letters (skill checks / flags).
 - [ ] **M4 — Combat.** Turn-based AP combat with range bands, one mutant, XP/loot.

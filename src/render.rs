@@ -79,6 +79,22 @@ impl TileGrid {
             self.cells[y * self.w + x] = g;
         }
     }
+
+    /// Writes a string starting at (x, y). Off-grid characters are dropped by `set`.
+    pub fn text(&mut self, x: usize, y: usize, s: &str, fg: Color, bold: bool) {
+        for (i, ch) in s.chars().enumerate() {
+            self.set(x + i, y, Glyph { ch, fg, bold });
+        }
+    }
+
+    pub fn clear(&mut self) {
+        let blank = Glyph {
+            ch: ' ',
+            fg: PALETTE.dim,
+            bold: false,
+        };
+        self.cells.fill(blank);
+    }
 }
 
 impl FromWorld for TileGrid {
