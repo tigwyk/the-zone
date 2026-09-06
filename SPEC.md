@@ -24,6 +24,7 @@ src/render.rs      Glyph, TileGrid, Palette, render_grid          (split in M1)
 src/area.rs        .area loader, zone.ron loader, scene build_grid (split in M1)
 src/run.rs         RunState, Rng, check(), price()                    (M2)
 src/screens.rs     modal screens (creation, inventory, trade) + chrome (M2)
+src/sim.rs         clock, radiation, emissions, anomaly fields, gates    (M3)
 assets/data/       all game content — see §5
 PLAN.md GDD.md SPEC.md
 ```
@@ -155,11 +156,27 @@ Items and vendors sit in the same file (SPEC §5.3 carves them out later):
 ```
 
 `ItemKind`: `Heal(i32)`, `Antirad(i32)`, `Weapon(i32)` (damage), `Armor(i32)`
-(damage resistance), `Misc`. Vendor `stock` is the starting shelf; the live shelf is
+(damage resistance), `Artifact(attr: usize, bonus: i32, rads: i32)` (carried: shifts one
+attribute, costs rads every hour), `Light` (cancels the night PER penalty), `Misc`.
+A vendor's optional `artifact_markup` (default 1.0) multiplies its own markup on
+artifacts only. Vendor `stock` is the starting shelf; the live shelf is
 the `VendorStock` resource, so trading does not mutate loaded data.
 
 `Gate`: `None`, `Check(Skill, i32)` (rolled once per run on first entry),
 `Flag(String)`, `Rep(FactionId, i32)`.
+
+An area with an anomaly carries a field block, and only such an area may use the
+anomaly verbs (the loader checks):
+
+```ron
+    anomaly: Some(Anomaly(
+        name: "Whirligig", danger: 55, dice: (6, 6),
+        artifact: "gravi", beyond: "quarry",
+    )),
+```
+
+`danger` is the percent chance that `PushThrough` hurts; `dice` is contact damage NdS.
+`TakeArtifact` is dropped from the rendered menu until something reveals an artifact.
 
 Menus have at most 5 entries. A secret letter must not also be a menu key (menus have
 no letter keys, so this is automatic; keep it that way).

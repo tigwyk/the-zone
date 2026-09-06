@@ -1,18 +1,25 @@
-//! The Zone — M2 (character, inventory & trade).
+//! The Zone — M3 (the Zone breathes).
 
 mod area;
 mod render;
 mod run;
 mod screens;
+mod sim;
 
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::window::{PresentMode, WindowResolution};
 
 use area::{build_area_grid, Action, VendorStock, ZoneData};
 use render::{render_grid, TileGrid};
-use run::{RunState, Rng, BACKGROUNDS, REST_COST, REST_MINUTES, REST_RADS, SKILL_NAMES, TAG_COUNT};
+use run::{Rng, RunState, BACKGROUNDS, REST_COST, REST_RADS, SKILL_NAMES, TAG_COUNT};
 use screens::{
-    build_creation_grid, build_inventory_grid, build_trade_grid, trade_list, trade_one, use_item,
+    build_creation_grid, build_gameover_grid, build_inventory_grid, build_trade_grid, trade_list,
+    trade_one, use_item,
+};
+use sim::{
+    action_minutes, advance, check_death, push_through, reveal_secrets, scan, take_artifact,
+    throw_bolt, visible_menu, Fields, GameClock,
 };
 
 #[derive(Resource, Default)]
@@ -57,6 +64,7 @@ enum GameState {
     Area,
     Inventory,
     Trade,
+    GameOver,
 }
 
 const LETTER_KEYS: [(KeyCode, char); 26] = [
@@ -92,7 +100,7 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
-                title: "The Zone — M2".into(),
+                title: "The Zone — M3".into(),
                 resolution: WindowResolution::new(1280, 720).with_scale_factor_override(1.0),
                 present_mode: PresentMode::AutoVsync,
                 ..default()
@@ -108,6 +116,8 @@ fn main() {
         .init_resource::<RunState>()
         .init_resource::<Rng>()
         .init_resource::<TradeUi>()
+        .init_resource::<GameClock>()
+        .init_resource::<Fields>()
         .init_resource::<Creation>()
         .init_resource::<TileGrid>()
         .init_state::<GameState>()
@@ -116,6 +126,7 @@ fn main() {
         .add_systems(OnEnter(GameState::Area), redraw_area)
         .add_systems(OnEnter(GameState::Inventory), enter_inventory)
         .add_systems(OnEnter(GameState::Trade), enter_trade)
+        .add_systems(OnEnter(GameState::GameOver), enter_gameover)
         .add_systems(
             Update,
             (creation_input, render_grid)
@@ -140,6 +151,12 @@ fn main() {
                 .chain()
                 .run_if(in_state(GameState::Trade)),
         )
+        .add_systems(
+            Update,
+            (gameover_input, render_grid)
+                .chain()
+                .run_if(in_state(GameState::GameOver)),
+        )
         .run();
 }
 
@@ -159,6 +176,10 @@ fn creation_input(
     mut run: ResMut<RunState>,
     mut grid: ResMut<TileGrid>,
     mut message: ResMut<MessageLine>,
+    mut clock: ResMut<GameClock>,
+    mut rng: ResMut<Rng>,
+    zone: Res<ZoneData>,
+    area: Res<CurrentArea>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
     let n = if c.phase == 0 { BACKGROUNDS.len() } else { SKILL_NAMES.len() };
@@ -184,6 +205,8 @@ fn creation_input(
             c.tags.push(sel);
             if c.tags.len() == TAG_COUNT {
                 *run = RunState::roll(c.background, &c.tags);
+                clock.schedule(&run, &mut rng);
+                reveal_secrets(&area.0, &mut run, &zone, &mut rng);
                 message.0 = "You sign the ledger and walk in.".into();
                 next_state.set(GameState::Area);
                 return;
@@ -203,11 +226,13 @@ fn redraw_area(
     mut grid: ResMut<TileGrid>,
     zone: Res<ZoneData>,
     run: Res<RunState>,
+    clock: Res<GameClock>,
+    fields: Res<Fields>,
     area: Res<CurrentArea>,
     sel: Res<MenuSelection>,
     message: Res<MessageLine>,
 ) {
-    build_area_grid(&mut grid, &zone, &run, &area.0, sel.0, &message.0);
+    build_area_grid(&mut grid, &zone, &run, &clock, &fields, &area.0, sel.0, &message.0);
 }
 
 fn enter_inventory(
@@ -215,10 +240,11 @@ fn enter_inventory(
     mut grid: ResMut<TileGrid>,
     zone: Res<ZoneData>,
     run: Res<RunState>,
+    clock: Res<GameClock>,
     message: Res<MessageLine>,
 ) {
     cursor.0 = 0;
-    build_inventory_grid(&mut grid, &zone, &run, 0, &message.0);
+    build_inventory_grid(&mut grid, &zone, &run, &clock, 0, &message.0);
 }
 
 fn enter_trade(
@@ -227,6 +253,7 @@ fn enter_trade(
     zone: Res<ZoneData>,
     stock: Res<VendorStock>,
     run: Res<RunState>,
+    clock: Res<GameClock>,
     trade_ui: Res<TradeUi>,
     message: Res<MessageLine>,
 ) {
@@ -236,6 +263,7 @@ fn enter_trade(
         &zone,
         &stock,
         &run,
+        &clock,
         &trade_ui.vendor,
         trade_ui.buying,
         0,
@@ -243,15 +271,25 @@ fn enter_trade(
     );
 }
 
+/// Everything an area action can touch. Bundled because `perform` needs all of it.
+#[derive(SystemParam)]
+struct Act<'w> {
+    area: ResMut<'w, CurrentArea>,
+    message: ResMut<'w, MessageLine>,
+    run: ResMut<'w, RunState>,
+    clock: ResMut<'w, GameClock>,
+    fields: ResMut<'w, Fields>,
+    stock: ResMut<'w, VendorStock>,
+    rng: ResMut<'w, Rng>,
+    trade_ui: ResMut<'w, TradeUi>,
+    zone: Res<'w, ZoneData>,
+}
+
 fn menu_input(
     keys: Res<ButtonInput<KeyCode>>,
     mut sel: ResMut<MenuSelection>,
-    mut area: ResMut<CurrentArea>,
-    mut message: ResMut<MessageLine>,
     mut grid: ResMut<TileGrid>,
-    mut run: ResMut<RunState>,
-    mut trade_ui: ResMut<TradeUi>,
-    zone: Res<ZoneData>,
+    mut act: Act,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
     if keys.just_pressed(KeyCode::Tab) {
@@ -259,8 +297,12 @@ fn menu_input(
         return;
     }
 
-    let data = &zone.areas[area.0.as_str()];
-    let n = data.menu.len();
+    let here = act.area.0.clone();
+    let menu: Vec<Action> = visible_menu(&act.zone.areas[here.as_str()], &act.fields, &here)
+        .iter()
+        .map(|(_, a)| a.clone())
+        .collect();
+    let n = menu.len();
     let mut changed = false;
 
     if keys.just_pressed(KeyCode::ArrowUp) {
@@ -272,15 +314,20 @@ fn menu_input(
         changed = true;
     }
     if keys.just_pressed(KeyCode::Enter) {
-        let action = data.menu[sel.0].1.clone();
-        if run_action(&action, &mut area, &mut message, &mut run, &mut trade_ui, &mut next_state) {
+        if perform(&menu[sel.0], &mut act, &mut next_state) {
             sel.0 = 0;
         }
         changed = true;
     }
     if let Some(letter) = pressed_letter(&keys) {
-        if let Some(action) = data.secrets.get(&letter).cloned() {
-            if run_action(&action, &mut area, &mut message, &mut run, &mut trade_ui, &mut next_state) {
+        // Only a revealed letter answers to its key (GDD §5).
+        let secret = act.zone.areas[here.as_str()]
+            .secrets
+            .get(&letter)
+            .filter(|_| act.run.is_revealed(&here, letter))
+            .map(|s| s.action.clone());
+        if let Some(action) = secret {
+            if perform(&action, &mut act, &mut next_state) {
                 sel.0 = 0;
             }
             changed = true;
@@ -288,50 +335,104 @@ fn menu_input(
     }
 
     if changed {
-        build_area_grid(&mut grid, &zone, &run, &area.0, sel.0, &message.0);
+        // The menu can shrink under the cursor: Take Artifact comes and goes.
+        let n = visible_menu(&act.zone.areas[act.area.0.as_str()], &act.fields, &act.area.0).len();
+        sel.0 = sel.0.min(n.saturating_sub(1));
+        build_area_grid(
+            &mut grid,
+            &act.zone,
+            &act.run,
+            &act.clock,
+            &act.fields,
+            &act.area.0,
+            sel.0,
+            &act.message.0,
+        );
     }
 }
 
-/// Runs one menu or secret action. Returns true if the area changed.
-fn run_action(
-    action: &Action,
-    area: &mut CurrentArea,
-    message: &mut MessageLine,
-    run: &mut RunState,
-    trade_ui: &mut TradeUi,
-    next_state: &mut NextState<GameState>,
-) -> bool {
+/// Runs one menu or secret action, then lets the clock catch up with it.
+/// Returns true if the area changed.
+fn perform(action: &Action, act: &mut Act, next_state: &mut NextState<GameState>) -> bool {
+    let here = act.area.0.clone();
+    // The loader guarantees an anomaly verb only ever sits on a field.
+    let anomaly = act.zone.areas[here.as_str()].anomaly.clone();
+    let mut moved = None;
+
     match action {
         Action::Travel(dest) => {
-            area.0 = dest.clone();
-            run.minutes += 60; // GDD §5: travel costs 1 h
-            message.0.clear();
-            true
+            moved = Some(dest.clone());
+            act.message.0.clear();
         }
-        Action::Say(s) => {
-            message.0 = s.clone();
-            false
-        }
+        Action::Say(s) => act.message.0 = s.clone(),
         Action::Rest => {
-            if run.rubles < REST_COST {
-                message.0 = format!("A bunk costs {REST_COST} RU. You are short.");
-            } else {
-                run.rubles -= REST_COST;
-                run.minutes += REST_MINUTES;
-                run.hp = run.max_hp;
-                run.rads = (run.rads - REST_RADS).max(0);
-                message.0 = "You sleep eight hours. The Zone waits.".into();
+            if act.run.rubles < REST_COST {
+                act.message.0 = format!("A bunk costs {REST_COST} RU. You are short.");
+                return false;
             }
-            false
+            act.run.rubles -= REST_COST;
+            act.run.hp = act.run.max_hp;
+            act.run.rads = (act.run.rads - REST_RADS).max(0);
+            act.message.0 = "You sleep eight hours. The Zone waits.".into();
         }
         Action::Trade(vendor) => {
-            trade_ui.vendor = vendor.clone();
-            trade_ui.buying = true;
-            message.0.clear();
+            act.trade_ui.vendor = vendor.clone();
+            act.trade_ui.buying = true;
+            act.message.0.clear();
             next_state.set(GameState::Trade);
-            false
+        }
+        Action::SetFlag(flag) => {
+            act.run.flags.insert(flag.clone());
+            act.message.0 = "You read it twice, and keep it.".into();
+        }
+        Action::Scan => {
+            let a = anomaly.as_ref().expect("Scan outside a field");
+            act.message.0 = scan(&here, a, &mut act.run, &act.zone, &mut act.fields, &mut act.rng);
+        }
+        Action::ThrowBolt => {
+            let a = anomaly.as_ref().expect("ThrowBolt outside a field");
+            act.message.0 = throw_bolt(&here, a, &mut act.run, &mut act.fields, &mut act.rng);
+        }
+        Action::PushThrough => {
+            let a = anomaly.as_ref().expect("PushThrough outside a field");
+            let (msg, dest) = push_through(&here, a, &mut act.run, &mut act.fields, &mut act.rng);
+            act.message.0 = msg;
+            moved = dest;
+        }
+        Action::TakeArtifact => {
+            let a = anomaly.as_ref().expect("TakeArtifact outside a field");
+            act.message.0 = take_artifact(&here, a, &mut act.run, &act.zone, &mut act.fields);
         }
     }
+
+    // The clock runs where you were standing, so an emission catches you there.
+    let minutes = action_minutes(action);
+    if minutes > 0 {
+        let msg = advance(
+            minutes,
+            &here,
+            &mut act.run,
+            &act.zone,
+            &mut act.clock,
+            &mut act.fields,
+            &mut act.stock,
+            &mut act.rng,
+        );
+        if !msg.is_empty() {
+            act.message.0 = msg;
+        }
+    }
+
+    if let Some(dest) = &moved {
+        act.area.0 = dest.clone();
+    }
+    let now = act.area.0.clone();
+    reveal_secrets(&now, &mut act.run, &act.zone, &mut act.rng);
+
+    if check_death(&mut act.run) {
+        next_state.set(GameState::GameOver);
+    }
+    moved.is_some()
 }
 
 // ---- inventory ----
@@ -343,6 +444,7 @@ fn inventory_input(
     mut message: ResMut<MessageLine>,
     mut grid: ResMut<TileGrid>,
     zone: Res<ZoneData>,
+    clock: Res<GameClock>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
     if keys.just_pressed(KeyCode::Escape) || keys.just_pressed(KeyCode::Tab) {
@@ -370,7 +472,7 @@ fn inventory_input(
     }
 
     if changed {
-        build_inventory_grid(&mut grid, &zone, &run, cursor.0, &message.0);
+        build_inventory_grid(&mut grid, &zone, &run, &clock, cursor.0, &message.0);
     }
 }
 
@@ -385,6 +487,7 @@ fn trade_input(
     mut grid: ResMut<TileGrid>,
     mut trade_ui: ResMut<TradeUi>,
     zone: Res<ZoneData>,
+    clock: Res<GameClock>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
     if keys.just_pressed(KeyCode::Escape) {
@@ -436,11 +539,25 @@ fn trade_input(
             &zone,
             &stock,
             &run,
+            &clock,
             &trade_ui.vendor,
             trade_ui.buying,
             cursor.0,
             &message.0,
         );
+    }
+}
+
+// ---- the end of a run ----
+
+fn enter_gameover(mut grid: ResMut<TileGrid>, run: Res<RunState>) {
+    let cause = run.death.clone().unwrap_or_default();
+    build_gameover_grid(&mut grid, &run, &cause);
+}
+
+fn gameover_input(keys: Res<ButtonInput<KeyCode>>, mut exit: MessageWriter<AppExit>) {
+    if keys.just_pressed(KeyCode::Escape) {
+        exit.write(AppExit::Success);
     }
 }
 

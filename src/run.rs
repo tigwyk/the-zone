@@ -1,10 +1,11 @@
 //! The stalker: `RunState`, backgrounds, the seeded RNG, the d100 `check()`
 //! and the one `price()` formula (SPEC §3).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use bevy::prelude::*;
+use serde::Deserialize;
 
 // ---- attributes & skills (GDD §4) ----
 
@@ -34,6 +35,27 @@ pub(crate) const SKILL_NAMES: [&str; 10] = [
 const SKILL_ATTR: [usize; 10] = [AGI, INT, STR, AGI, INT, INT, PER, INT, PER, CHA];
 
 pub(crate) const BARTER: usize = 9;
+
+/// The same ten skills, named for `zone.ron` gates. Order matches `SKILL_NAMES`.
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Skill {
+    SmallGuns,
+    EnergyWeapons,
+    Melee,
+    Sneak,
+    Medicine,
+    Repair,
+    Lockpick,
+    Science,
+    StalkerLore,
+    Barter,
+}
+
+impl Skill {
+    pub fn index(self) -> usize {
+        self as usize
+    }
+}
 
 // GDD §4: attributes start at 5, tags give +15, HP = 20 + 3 × END.
 const ATTR_BASE: i32 = 5;
@@ -109,6 +131,14 @@ pub(crate) struct RunState {
     pub rep: HashMap<String, i32>,
     /// Minutes since day 1, 00:00.
     pub minutes: u32,
+    /// Quest/secret flags set by `SetFlag`.
+    pub flags: HashSet<String>,
+    /// Hidden letters this run has seen, keyed `"<area>:<letter>"`.
+    pub revealed: HashSet<String>,
+    /// Gates already rolled, so a failed `Check` gate stays failed for the run.
+    pub gate_rolled: HashSet<String>,
+    /// Set once, when the run ends.
+    pub death: Option<String>,
 }
 
 impl RunState {
@@ -145,7 +175,20 @@ impl RunState {
             armor: None,
             rep: bg.rep.iter().map(|&(f, r)| (f.to_string(), r)).collect(),
             minutes: START_MINUTES,
+            flags: HashSet::new(),
+            revealed: HashSet::new(),
+            gate_rolled: HashSet::new(),
+            death: None,
         }
+    }
+
+    /// Key for the per-run secret sets.
+    pub fn secret_key(area_id: &str, letter: char) -> String {
+        format!("{area_id}:{letter}")
+    }
+
+    pub fn is_revealed(&self, area_id: &str, letter: char) -> bool {
+        self.revealed.contains(&Self::secret_key(area_id, letter))
     }
 
     pub fn day(&self) -> u32 {

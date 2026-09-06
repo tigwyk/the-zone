@@ -18,30 +18,42 @@ hidden-letter secrets · **Bevy text pass, not a glyph atlas** (locked in M0, se
 
 ## 0. Where we are (2026-09-05)
 
-Five modules — `main.rs` (app, states, input), `render.rs` (glyph, palette, renderer),
-`area.rs` (loaders, scene build), `run.rs` (the stalker), `screens.rs` (modal screens) —
-on Bevy 0.19.1, fully data-driven. An 80x30 `TileGrid` blitted as one `Text2d` with a
-`TextSpan` per same-colour run; one `Palette` const; screen origin derived from the
-window size. `States { CharacterCreation, Area, Inventory, Trade }`.
+Six modules on Bevy 0.19.1, fully data-driven: `main.rs` (app, states, input),
+`render.rs` (glyph, palette, renderer), `area.rs` (loaders, scene build), `run.rs` (the
+stalker), `screens.rs` (modal screens), `sim.rs` (the Zone acting on you). An 80x30
+`TileGrid` blitted as one `Text2d` with a `TextSpan` per same-colour run; one `Palette`
+const; screen origin derived from the window size.
+`States { CharacterCreation, Area, Inventory, Trade, GameOver }`.
 
-**M0, M1 and M2 are done.** A run now starts at the creation screen (pick a background,
-tag three skills), which rolls a `RunState` — attributes, skills, HP, rads, rubles, a
-starting kit and background faction rep — shown live on the status row. `Tab` opens a
-real inventory (use meds, equip a weapon or armour, read your stats and skills);
-Sidorovich at the camp opens the Trade state (Left/Right buy or sell, prices through the
-one `price()` formula with Barter and rep modifiers, hostile vendors refuse). `Rest`
-costs 50 RU for 8 h, full heal and -100 rads. The d100 `check()` and the seeded `Rng`
-exist with their crit-edge test; the first gameplay caller is the gated secret in M3.
-Thirteen tests green: loader marker parsing and duplicate rejection, a real `zone.ron`
-load, `check()` crit edges, d100 range, price direction and GDD anchors, character roll,
-item removal, the trade round trip, affordability, hostile refusal, healing, and a
-build-every-screen smoke test.
+**M0 through M3 are done.** A run starts at the creation screen (background, three tag
+skills) and rolls a `RunState`. `Tab` opens a real inventory (use meds, equip, read your
+stats); Sidorovich opens Trade, with prices through the one `price()` formula plus
+Barter, rep, and an artifact mark-up. Beyond the road lies the **Whirligig field**: its
+tells stay dull until you Scan, a Bolt buys you the next step's answer, Push Through is
+the gamble, and the artifact you lift pays +1 STR and 4 rads an hour until you sell it.
+The clock runs on every action; **emissions** come every 3-5 days with an hour's warning
+on the status row, and cost 400 rads and half your health unless you are under cover -
+then they restock the vendors and reshuffle the fields. Radiation drags your attributes
+down by the GDD table and kills at 1000; a dead stalker gets an end screen. Hidden
+letters are now **gated**: the field's `G` needs a Stalker Lore check rolled once per
+run, and the quarry's `S` stays plain art until you have read the log in the hatch.
+
+Twenty-one tests green: `.area` marker parsing and duplicate rejection, a real
+`zone.ron` load, `check()` crit edges, d100 range, price direction and GDD anchors,
+character roll, item removal, the trade round trip, affordability, hostile refusal,
+healing, the radiation table, night hours, artifact rads and bonuses, emission shelter
+and reset, bolts and scanned crossings, artifact-taken-once, flag gates, check gates
+rolled once, and a build-every-screen smoke test.
 
 Deliberate simplifications, documented in code:
 - No `rand` dependency: a six-line seeded xorshift covers d100 (`ponytail:` in `run.rs`).
-- No vendor restock roll yet — it belongs with the clock in M3.
+- Anomaly damage ignores armour, and a scanned field is simply safe to cross rather than
+  growing a separate safe-path verb.
+- Emissions do not swap an area's menu (no `Shelter` verb, no `Travel` removal); the
+  hour of warning is the whole mechanic.
+- The end screen just ends. Memorial, meta-progress and rolling a new stalker are M6.
+- Skills do not yet rise by use (GDD §4) - the first thing to add on top of M3.
 - All four backgrounds are selectable; their unlock conditions need `MetaProgress` (M6).
-- The secret `gate` field is omitted until gated secrets land in M3.
 - `#!` color-override lines in `.area` files are not implemented yet (no override needed).
 
 ## 1. One-paragraph pitch
@@ -325,8 +337,9 @@ This is what lets the game grow into "content" instead of "code" after M5.
   items, equip/use menu, and **a working vendor at the camp** (buy/sell with Barter + rep
   modifiers). Self-checks: price math (buy > sell; Barter/rep shift the margin) and the
   d100 crit edges. *(Done, 2026-09.)*
-- [ ] **M3 — The Zone breathes.** Anomaly-field areas + bolts + detection, artifacts,
+- [x] **M3 — The Zone breathes.** Anomaly-field areas + bolts + detection, artifacts,
   radiation, day/night + emission; gated hidden letters (skill checks / flags).
+  *(Done, 2026-09.)*
 - [ ] **M4 — Combat.** Turn-based AP combat with range bands, one mutant, XP/loot.
 - [ ] **M5 — World & story.** Area network + Map screen, NPCs, dialogue, quests,
   factions, more vendors. Split `zone.ron` here.

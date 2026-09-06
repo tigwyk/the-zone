@@ -195,6 +195,10 @@ stand; otherwise it only shows the route.
 
 **Anomaly field flow:**
 
+**Numbers:** a field action (scan, bolt, take) costs 10 minutes; pushing through costs
+an hour, like any travel. On a scan, PER assists Stalker Lore at **+2 per point above
+5**, and the night penalty applies unless you carry a light.
+
 1. **Scan** — Stalker Lore check (PER assists). Success: the anomaly's tell renders in
    amber and the field's safe path is shown as a menu verb. Crit: also reveals one
    artifact. Fail: nothing. Crit fail: you step wrong, take damage.
@@ -204,6 +208,9 @@ stand; otherwise it only shows the route.
    (30–80%). Reaches whatever is on the far side.
 4. **Take artifact** — appears only after one is revealed. Holding it: +rads per hour
    as listed.
+
+**In v1 so far:** the Whirligig field east of the road (danger 55, 6d6) hides a **Gravi**
+(+1 STR, 4 rads an hour, base 3000 ₽). A **flashlight** (200 ₽) is the light source.
 
 **Artifacts** give a stat bonus and a radiation cost while carried. They are the money
 engine: sell at the trader, or keep and pay in rads. Deeper fields spawn better ones.
@@ -305,7 +312,8 @@ Monolith if their rep is highest. Every ending writes a memorial entry.
 
 ## 10. Death and meta-progression
 
-- Death ends the run. The suspend file is deleted.
+- Death ends the run. The suspend file is deleted. Death comes from 0 HP or 1000 rads;
+  the end screen names the cause and the days survived.
 - **Suspend** (F5) saves and quits. Resuming deletes the file. There is no reload.
 - **Persists across runs:** discovered lore entries, unlocked backgrounds, faction rep
   at 25% of its final value, the memorial (name, days survived, cause of death, last

@@ -8,8 +8,9 @@ use bevy::prelude::*;
 use serde::Deserialize;
 
 use crate::render::{Glyph, TileGrid, PALETTE};
-use crate::run::RunState;
+use crate::run::{RunState, Skill};
 use crate::screens::draw_chrome;
+use crate::sim::{visible_menu, Fields, GameClock};
 
 // Fixed row map (SPEC §4): art 0–17, desc 19–20, menu 22–26, message 27, status 28, footer 29.
 const DESC_ROW: usize = 19;
@@ -37,12 +38,24 @@ struct Area {
     menu: Vec<(String, Action)>,
     #[serde(default)]
     secrets: HashMap<char, Secret>,
+    #[serde(default)]
+    anomaly: Option<AnomalyData>,
 }
 
-// ponytail: gates land with gated secrets (M3); M1 secrets are always visible.
-#[derive(Deserialize)]
-struct Secret {
-    action: Action,
+#[derive(Deserialize, Clone)]
+pub(crate) struct Secret {
+    pub action: Action,
+    #[serde(default)]
+    pub gate: Option<Gate>,
+}
+
+/// What has to be true before a hidden letter shows itself (SPEC §5.2).
+#[derive(Deserialize, Clone)]
+pub(crate) enum Gate {
+    /// Rolled once per run, the first time you enter the area.
+    Check(Skill, i32),
+    Flag(String),
+    Rep(String, i32),
 }
 
 #[derive(Deserialize, Clone)]
@@ -51,6 +64,25 @@ pub(crate) enum Action {
     Say(String),
     Rest,
     Trade(String),
+    Scan,
+    ThrowBolt,
+    PushThrough,
+    TakeArtifact,
+    SetFlag(String),
+}
+
+/// An anomaly field: the danger of walking in, what it does to you, what it hides.
+#[derive(Deserialize, Clone)]
+#[serde(rename = "Anomaly")]
+pub(crate) struct AnomalyData {
+    pub name: String,
+    /// Percent chance that pushing through blind hurts (GDD §6: 30-80).
+    pub danger: u32,
+    /// Contact damage, NdS.
+    pub dice: (u32, u32),
+    pub artifact: String,
+    /// The area on the far side.
+    pub beyond: String,
 }
 
 #[derive(Deserialize, Clone)]
@@ -67,6 +99,10 @@ pub(crate) enum ItemKind {
     Antirad(i32),
     Weapon(i32),
     Armor(i32),
+    /// Carried: +bonus to one attribute, +rads every hour (GDD §6).
+    Artifact { attr: usize, bonus: i32, rads: i32 },
+    /// Kills the night penalty on PER checks (GDD §5).
+    Light,
     Misc,
 }
 
@@ -76,7 +112,14 @@ pub(crate) struct VendorData {
     pub name: String,
     pub faction: String,
     pub markup: f32,
+    /// Vendor specialty (GDD §7): the trader pays 1.5x for artifacts.
+    #[serde(default = "one")]
+    pub artifact_markup: f32,
     pub stock: Vec<(String, u32)>,
+}
+
+fn one() -> f32 {
+    1.0
 }
 
 // name/shelter are read by later milestones (status/map, M3 emissions).
@@ -87,8 +130,9 @@ pub(crate) struct AreaData {
     pub art: Vec<String>,
     pub desc: Vec<String>,
     pub menu: Vec<(String, Action)>,
-    pub secrets: HashMap<char, Action>,
+    pub secrets: HashMap<char, Secret>,
     pub secret_cells: Vec<(usize, usize, char)>,
+    pub anomaly: Option<AnomalyData>,
 }
 
 #[derive(Resource)]
@@ -136,8 +180,7 @@ pub(crate) fn load_zone(data_dir: &Path) -> ZoneData {
     for (id, a) in zone.areas {
         let art_path = data_dir.join("areas").join(format!("{}.area", a.art));
         let (art, desc, secret_cells) = load_area_file(&art_path);
-        let secrets: HashMap<char, Action> =
-            a.secrets.into_iter().map(|(k, s)| (k, s.action)).collect();
+        let secrets = a.secrets;
         for &(_, _, ch) in &secret_cells {
             assert!(
                 secrets.contains_key(&ch),
@@ -155,6 +198,7 @@ pub(crate) fn load_zone(data_dir: &Path) -> ZoneData {
                 menu: a.menu,
                 secrets,
                 secret_cells,
+                anomaly: a.anomaly,
             },
         );
     }
@@ -186,14 +230,39 @@ impl ZoneData {
                 self.vendors.contains_key(v),
                 "zone.ron: {where_} trades with unknown vendor '{v}'"
             ),
-            Action::Say(_) | Action::Rest => {}
+            _ => {}
         };
         for (id, area) in &self.areas {
             for (label, action) in &area.menu {
                 check(action, &format!("{id}/{label}"));
             }
-            for (letter, action) in &area.secrets {
-                check(action, &format!("{id}/'{letter}'"));
+            for (letter, secret) in &area.secrets {
+                check(&secret.action, &format!("{id}/'{letter}'"));
+            }
+            // The anomaly verbs only make sense on a field; `perform` relies on it.
+            let verbs = area.menu.iter().map(|(_, a)| a).chain(area.secrets.values().map(|s| &s.action));
+            for action in verbs {
+                if matches!(
+                    action,
+                    Action::Scan | Action::ThrowBolt | Action::PushThrough | Action::TakeArtifact
+                ) {
+                    assert!(
+                        area.anomaly.is_some(),
+                        "zone.ron: area '{id}' uses an anomaly verb but has no anomaly"
+                    );
+                }
+            }
+            if let Some(anomaly) = &area.anomaly {
+                assert!(
+                    self.items.contains_key(&anomaly.artifact),
+                    "zone.ron: field '{id}' hides unknown artifact '{}'",
+                    anomaly.artifact
+                );
+                assert!(
+                    self.areas.contains_key(&anomaly.beyond),
+                    "zone.ron: field '{id}' leads to unknown area '{}'",
+                    anomaly.beyond
+                );
             }
         }
         for (id, v) in &self.vendors {
@@ -315,36 +384,49 @@ pub(crate) fn build_area_grid(
     grid: &mut TileGrid,
     zone: &ZoneData,
     run: &RunState,
+    clock: &GameClock,
+    fields: &Fields,
     area_id: &str,
     sel: usize,
     message: &str,
 ) {
     grid.clear();
     let area = &zone.areas[area_id];
+    let state = fields.get(area_id);
 
-    // Art rows 0–17.
+    // An unscanned field keeps its tells dull; Scan is what lights them amber (GDD §6).
+    let tells_lit = area.anomaly.is_none() || state.scanned;
+
+    // Art rows 0-17.
     for (y, line) in area.art.iter().enumerate() {
         for (x, ch) in line.chars().enumerate() {
             let mut g = Glyph {
                 ch,
-                fg: class_color(ch),
+                fg: class_color(ch, tells_lit),
                 bold: false,
             };
-            if area.secret_cells.iter().any(|&(sx, sy, _)| sx == x && sy == y) {
-                g.fg = PALETTE.secret;
-                g.bold = true;
+            // A gated letter renders as ordinary art until it is revealed (GDD §5).
+            if let Some(&(_, _, letter)) = area
+                .secret_cells
+                .iter()
+                .find(|&&(sx, sy, _)| sx == x && sy == y)
+            {
+                if run.is_revealed(area_id, letter) {
+                    g.fg = PALETTE.secret;
+                    g.bold = true;
+                }
             }
             grid.set(x, y, g);
         }
     }
 
-    // Description rows 19–20.
+    // Description rows 19-20.
     for (dy, line) in area.desc.iter().enumerate() {
         grid.text(0, DESC_ROW + dy, line, PALETTE.desc, false);
     }
 
-    // Menu rows 22–26.
-    for (i, (label, _)) in area.menu.iter().enumerate() {
+    // Menu rows 22-26.
+    for (i, (label, _)) in visible_menu(area, fields, area_id).iter().enumerate() {
         let fg = if i == sel { PALETTE.menu_sel } else { PALETTE.menu };
         let prefix = if i == sel { "> " } else { "  " };
         grid.text(0, MENU_ROW + i, prefix, fg, false);
@@ -352,16 +434,17 @@ pub(crate) fn build_area_grid(
     }
 
     grid.text(0, MESSAGE_ROW, message, PALETTE.desc, false);
-    draw_chrome(grid, run);
+    draw_chrome(grid, run, clock);
 }
 
 // Character class -> palette color (SPEC §5.1). Anomaly tells render amber.
-fn class_color(ch: char) -> Color {
+fn class_color(ch: char, tells_lit: bool) -> Color {
     match ch {
         ' ' => PALETTE.dim,
         '~' => PALETTE.smoke,
         '^' => PALETTE.fire,
-        '*' | '+' | '@' | '.' | ':' => PALETTE.amber,
+        '*' | '+' | '@' | '.' | ':' if tells_lit => PALETTE.amber,
+        '*' | '+' | '@' | '.' | ':' => PALETTE.grey,
         _ => PALETTE.ground,
     }
 }
@@ -393,8 +476,9 @@ mod tests {
     fn loads_zone_data() {
         let zone = load_zone(Path::new("assets/data"));
         assert_eq!(zone.start, "camp");
-        assert_eq!(zone.areas.len(), 3);
+        assert_eq!(zone.areas.len(), 5);
         assert!(zone.areas["camp"].secrets.contains_key(&'D'));
+        assert!(zone.areas["field"].anomaly.is_some());
         assert_eq!(zone.areas["camp"].secret_cells, vec![(13, 14, 'D')]);
         assert!(zone.vendors.contains_key("trader"));
         assert!(zone.items.contains_key("medkit"));
