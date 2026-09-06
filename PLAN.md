@@ -16,7 +16,7 @@ hidden-letter secrets · **Bevy text pass, not a glyph atlas** (locked in M0, se
 
 ---
 
-## 0. Where we are (2026-09-05)
+## 0. Where we are (2026-09-06)
 
 **The roadmap is done — M0 through M7 — and two rounds of work on top of it.** The
 game runs, ends, remembers, and tests itself.
@@ -83,7 +83,11 @@ many fights as you like, for loadouts built from named affix rolls. It has alrea
 found that crit affixes were worth about one percentage point at the price of a good
 weapon, that half of GDD §8's flee rule was never implemented, that a starting knife
 loses to the first Flesh three times in four, and that attack at 4 AP made aiming a
-non-choice. All four are fixed, each with a guard test.
+non-choice. All four are fixed, each with a guard test. A later arsenal-wide sweep
+found the rifle was a clone of the revolver, and that the escape-from-far flee rule —
+GDD §8's open "escape-versus-loot" tension — let a better gun mean fewer kills; both
+are fixed with guards. The starting kit now holds a knife, and the window respects the
+native scale factor so high-DPI (Retina) displays get a readable, sharp grid.
 
 ### Deliberate simplifications, documented in code
 
@@ -107,11 +111,6 @@ non-choice. All four are fixed, each with a guard test.
 
 ### What is open
 
-- **Wounded things escape more than they used to.** A quick kill drops an enemy under
-  its flee threshold while it is still at far range, and from far it is gone the same
-  turn — so a better gun can mean fewer kills and less loot (41% of bandits get away
-  from a kitted stalker). Defensible, but it is the first thing to revisit if the loot
-  economy feels thin.
 - **Nobody has played it.** Everything above is measured or asserted; none of it is
   felt. Pacing, whether the secrets are findable without knowing they are there, and
   whether a run is the right length are all unanswered.
@@ -442,7 +441,6 @@ numbered so SPEC can point at them.
   Attack dropped from 4 AP to 3 on its evidence.
 
 **Where to go next** (not a plan, a list of what is open):
-- The escape-versus-loot tension in §0.
 - Escort and deliver jobs; a hand-drawn `map.area` that can hide a letter.
 - Cover and encumbrance, so the rest of GDD §8's to-hit table has something to hang on.
 - Wire the Ecologist and Bandit unlocks to the Lab and the bandits now they exist.

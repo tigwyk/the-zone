@@ -276,8 +276,8 @@ again. Unsold player items vanish from the vendor's list at restock.
 and armour, Duty). Each vendor's markup *is* its specialty, because a doctor only
 stocks meds — they are content rows, not new code.
 
-**Starting kit** (every background): 600 ₽, 1 medkit, 2 loaves, 5 bolts, no weapon or
-armour. You arrive at base camp on day 1 at 06:00.
+**Starting kit** (every background): 600 ₽, a hunting knife, 1 medkit, 2 loaves, 5
+bolts. You arrive at base camp on day 1 at 06:00.
 
 **Rest** at a sheltered area: 8 h, 50 ₽, heals to full and clears 100 rads.
 
@@ -310,13 +310,13 @@ the camp's hidden letter, one properly kitted, and one geared for the deep:
 
 | | knife | sawn-off | rifle + vest | marked sniper + suit |
 |---|---|---|---|---|
-| Blind Dog | 96% | 96% | 88% | 99% |
-| Flesh | 23% | 68% | 96% | 92% |
-| Bandit | 29% | 23% | 59% | 91% |
-| Zone Boar | 0% | 13% | 99% | 100% |
-| Bloodsucker | 0% | 0% | 28% | 100% |
-| Controller | 0% | 0% | 41% | 100% |
-| Pseudogiant | 0% | 0% | 0% | 91% |
+| Blind Dog | 96% | 97% | 98% | 100% |
+| Flesh | 23% | 72% | 98% | 100% |
+| Bandit | 29% | 41% | 95% | 100% |
+| Zone Boar | 0% | 13% | 100% | 100% |
+| Bloodsucker | 0% | 0% | 72% | 100% |
+| Controller | 0% | 0% | 74% | 100% |
+| Pseudogiant | 0% | 0% | 5% | 97% |
 
 The curve is meant to read that way: a knife answers a dog and nothing else, the deep
 mutants want real gear, and the Pseudogiant on the approach wants everything you have.
@@ -341,19 +341,20 @@ accepted rather than overlooked:
   only the player got the discount was measured and rejected: it took the knife from
   losing to the first Flesh three times in four to *winning* three times in four, which
   is a different and worse game.
-- **Wounded things get away more.** A quick kill drops an enemy under its flee
-  threshold while it is still at far range, and from far it is gone the same turn — so
-  a better gun can mean *fewer* kills and less loot. A kitted stalker now loses 41% of
-  bandits and 12% of blind dogs that way. That is a real tension and not obviously
-  wrong, but it is the first thing to revisit if the loot economy feels thin.
+- **Wounded things still get away, but not for free.** A fleeing enemy gives up one
+  band a turn, and from far it first has to break away for a turn — so a gun that
+  wounded it at range gets one shot at its back before it clears. It used to be gone
+  the same turn from far, which made a better gun mean fewer kills; that one extra shot
+  lifted the sawn-off's kill rate on a bandit from 23% to 41%.
 
 **Roster order of implementation:** Bandit (human, gun), Flesh, Blind Dog, Bloodsucker
 (invisible until it attacks: PER check to act first), Controller (forces a will check
 each turn or lose the action), Pseudogiant (boss, guards the Room's approach).
 
 **Numbers not in the table above:** bare hands do 1d3 Melee. A fleeing enemy gives up
-one band per turn and only gets clear from far, so a wounded thing can still be caught.
-A turn ends when you can no longer afford the cheapest action (3 AP), and the menu only
+one band per turn, and from far it breaks away for one turn before it is gone, so a
+wounded thing can be caught — or shot in the back. A turn ends when you can no longer
+afford the cheapest action (3 AP), and the menu only
 offers what your AP covers. Anomaly damage is the exception to armour: it ignores it.
 
 **In v1 so far:** the **Flesh** on the quarry rim (30 HP, 7 AP, skill 45, 2d6, armour 1,

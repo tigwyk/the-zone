@@ -94,14 +94,25 @@ impl Loadout {
         if let Some((id, affixes)) = &self.weapon {
             let uid = run.next_uid();
             run.add_stack(ItemStack { uid, id: id.clone(), count: 1, affixes: affixes.clone() });
-            run.weapon = Some(uid);
+            run.weapon = Some(equipped(&run, id, affixes.is_empty(), uid));
         }
         if let Some((id, affixes)) = &self.armor {
             let uid = run.next_uid();
             run.add_stack(ItemStack { uid, id: id.clone(), count: 1, affixes: affixes.clone() });
-            run.armor = Some(uid);
+            run.armor = Some(equipped(&run, id, affixes.is_empty(), uid));
         }
         run
+    }
+}
+
+/// After `add_stack`, the stack actually in hand: a plain one has merged into the
+/// kit's own copy (the kit holds a knife) and keeps the kit's uid; an affixed one
+/// is pushed and keeps the uid it was just given.
+fn equipped(run: &RunState, id: &str, plain: bool, uid: u32) -> u32 {
+    if plain {
+        run.items.iter().find(|s| s.id == id).map(|s| s.uid).expect("just added")
+    } else {
+        uid
     }
 }
 
@@ -395,6 +406,25 @@ mod reports {
         assert!(a.killed > 0 && a.died > 0, "the plain pistol fight is not a coin toss: {a:?}",);
     }
 
+    /// The rifle costs a thousand more than the heavy revolver and must hit harder,
+    /// or it is dead weight on the gunrunner's shelf. Both swing the same skill, so
+    /// the only thing that can separate them is the dice.
+    #[test]
+    fn the_rifle_earns_its_price_over_the_revolver() {
+        let zone = load_zone(Path::new("assets/data"));
+        let trials = 600;
+        let revolver = Loadout::new("revolver").weapon("revolver", &[]).skill(60);
+        let rifle = Loadout::new("rifle").weapon("rifle", &[]).skill(60);
+        let a = simulate(&revolver, "boar", trials, 7, &zone);
+        let b = simulate(&rifle, "boar", trials, 7, &zone);
+        assert!(
+            b.win_rate() > a.win_rate(),
+            "the rifle must beat the revolver against a boar ({:.2} vs {:.2})",
+            b.win_rate(),
+            a.win_rate()
+        );
+    }
+
     /// Breaking off has to be a real way out, not a formality. Half of GDD §8's
     /// flee rule was missing and the bench found it: a kitted stalker who decided
     /// to run from a pseudogiant still died three times in five.
@@ -424,6 +454,79 @@ mod reports {
         }
     }
 
+    /// The first hours, measured as a real new player actually arrives: whatever the
+    /// kit holds and whatever 600 ₽ buys, at the skill a fresh stalker really has
+    /// (25 untagged, 40 tagged) rather than the kitted 60 the other reports assume.
+    #[test]
+    #[ignore = "balance bench: cargo test --release -- --ignored --nocapture balance"]
+    fn the_first_hours() {
+        let mut loadouts = Vec::new();
+        for skill in [25, 40] {
+            for (name, w) in [
+                ("bare hands (sold the knife)", None),
+                ("knife (in the kit)", Some("knife")),
+                ("knife + jacket (550 R)", Some("knife")),
+                ("sawn-off (hatch)", Some("sawn_off")),
+            ] {
+                let mut l = Loadout::new("x").skill(skill);
+                if let Some(id) = w {
+                    l = l.weapon(id, &[]);
+                }
+                if name.contains("jacket") {
+                    l = l.armor("jacket", &[]);
+                }
+                loadouts.push(Loadout { name: format!("{name}, skill {skill}"), ..l });
+            }
+        }
+        for enemy in ["blind_dog", "flesh", "bandit"] {
+            report("The first hours", enemy, &loadouts, TRIALS);
+        }
+    }
+
+    /// The whole arsenal, price order, against the whole roster. Reads as the ladder
+    /// a player climbs, so anything that does a cheaper thing's job (or fails to earn
+    /// its price) sticks out as a flat spot or a step backwards.
+    #[test]
+    #[ignore = "balance bench: cargo test --release -- --ignored --nocapture balance"]
+    fn the_whole_arsenal() {
+        let zone = load_zone(Path::new("assets/data"));
+        let mut weapons: Vec<&String> = zone
+            .items
+            .keys()
+            .filter(|id| matches!(zone.items[*id].kind, crate::area::ItemKind::Weapon { .. }))
+            .collect();
+        weapons.sort_by_key(|id| zone.items[*id].base);
+        let guns: Vec<Loadout> = weapons
+            .iter()
+            .map(|id| Loadout {
+                name: format!("{id}  {}R", zone.items[*id].base),
+                ..Loadout::new("x").weapon(id, &[]).skill(60)
+            })
+            .collect();
+        let mut enemies: Vec<&String> = zone.enemies.keys().collect();
+        enemies.sort_unstable();
+        for enemy in &enemies {
+            report("Arsenal (skill 60, no armour)", enemy, &guns, TRIALS);
+        }
+
+        let mut armors: Vec<&String> = zone
+            .items
+            .keys()
+            .filter(|id| matches!(zone.items[*id].kind, crate::area::ItemKind::Armor(_)))
+            .collect();
+        armors.sort_by_key(|id| zone.items[*id].base);
+        let suits: Vec<Loadout> = armors
+            .iter()
+            .map(|id| Loadout {
+                name: format!("rifle + {id}  {}R", zone.items[*id].base),
+                ..Loadout::new("x").weapon("rifle", &[]).armor(id, &[]).skill(70)
+            })
+            .collect();
+        for enemy in &enemies {
+            report("Armour (rifle, skill 70)", enemy, &suits, TRIALS);
+        }
+    }
+
     /// The first thing a new stalker is likely to meet. A knife is meant to be a bad
     /// answer to it; the weapon behind the camp's hidden letter is meant to be a
     /// workable one. If either stops being true the early game has drifted.
@@ -438,6 +541,20 @@ mod reports {
         let b = simulate(&found, "flesh", trials, 3, &zone);
         assert!(a.win_rate() < 0.5, "a knife should lose to a Flesh: {a:?}");
         assert!(b.win_rate() > 0.5, "the hatch gun should win it: {b:?}");
+    }
+
+    /// The Blind Dog is the first fight a new stalker actually meets, and the knife
+    /// they arrive with has to handle it even untagged. Otherwise the opening hour
+    /// is a permadeath coin toss instead of a lesson.
+    #[test]
+    fn the_kit_knife_handles_the_first_dog() {
+        let zone = load_zone(Path::new("assets/data"));
+        let knife = Loadout::new("knife").weapon("knife", &[]).skill(25);
+        let s = simulate(&knife, "blind_dog", 600, 5, &zone);
+        assert!(
+            s.win_rate() > 0.6,
+            "an untagged fresh stalker should beat the first dog: {s:?}"
+        );
     }
 }
 

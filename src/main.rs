@@ -175,7 +175,10 @@ fn main() {
     app.add_plugins(DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window {
             title: "The Zone".into(),
-            resolution: WindowResolution::new(1280, 720).with_scale_factor_override(1.0),
+            // 1280×720 logical, with the native scale factor respected: the fixed
+            // grid renders at the same readable size on a 1× monitor and a Retina
+            // display, instead of a quarter-sized window (the old 1.0 override).
+            resolution: WindowResolution::new(1280, 720),
             present_mode: PresentMode::AutoVsync,
             ..default()
         }),
@@ -1523,7 +1526,10 @@ mod playthrough {
         // The pack shows the built name, the rarity, and what each roll does.
         sim.press(KeyCode::Tab);
         assert_eq!(sim.state(), GameState::Inventory);
-        sim.choose_listed("Heavy Pump Shotgun of the Steady Hand");
+        // The list column truncates the long built name; the full one is read out
+        // below the list.
+        sim.choose_listed("Heavy Pump Shotgun of the");
+        sim.assert_shows("Heavy Pump Shotgun of the Steady Hand");
         sim.assert_shows("marked");
         sim.assert_shows("+3 damage");
         sim.assert_shows("+10 to hit");
@@ -1918,6 +1924,19 @@ mod playthrough {
         sim.assert_gutter_clear();
         sim.press(KeyCode::Escape);
         assert_eq!(sim.state(), GameState::Area);
+    }
+
+    #[test]
+    fn wielding_reads_out_instead_of_running_under_the_panel() {
+        let mut sim = Sim::new();
+        sim.roll_a_stalker();
+        sim.arm_with("knife");
+        sim.press(KeyCode::Tab);
+        assert_eq!(sim.state(), GameState::Inventory);
+        // The "[wielded]" marker used to run under the right-hand panel and get cut
+        // to "[wiel" - the full marker must sit in the list column.
+        sim.assert_shows("[wielded]");
+        sim.assert_gutter_clear();
     }
 
     #[test]

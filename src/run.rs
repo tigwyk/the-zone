@@ -117,9 +117,11 @@ pub(crate) const BACKGROUNDS: [Background; 4] = [
 
 // ---- the run ----
 
-// Starting kit (GDD §7). Rest: 8 h at a sheltered camp.
+// Starting kit (GDD §7). A knife is the whole opening answer to the first dog
+// (GDD §8); a stalker who sells it for rubles is betting they will not need it.
+// Rest: 8 h at a sheltered camp.
 const START_RUBLES: u32 = 600;
-const START_KIT: [(&str, u32); 3] = [("medkit", 1), ("bread", 2), ("bolt", 5)];
+const START_KIT: [(&str, u32); 4] = [("knife", 1), ("medkit", 1), ("bread", 2), ("bolt", 5)];
 const START_MINUTES: u32 = 6 * 60;
 pub(crate) const REST_MINUTES: u32 = 8 * 60;
 pub(crate) const REST_COST: u32 = 50;
@@ -550,6 +552,9 @@ mod tests {
         assert_eq!(r.day(), 1);
         assert_eq!(r.clock(), "06:00");
         assert!(!r.name.is_empty(), "the memorial needs something to carve");
+        // GDD §8: the starting kit is a knife, not bare hands. Selling it is a
+        // choice, arriving with it is not.
+        assert_eq!(r.count_of("knife"), 1, "a new stalker starts with a knife");
     }
 
     #[test]

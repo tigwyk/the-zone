@@ -211,7 +211,15 @@ pub(crate) fn build_inventory_grid(
             _ => "",
         };
         let count = if stack.count > 1 { format!("{:>3}", stack.count) } else { "   ".into() };
-        let label = format!("{:<34}{count}{slot}", loot::display_name(stack, zone));
+        // The list column ends at the panel gutter; a name that ran long pushed the
+        // count and the "[wielded]" marker under the panel. Long affixed names are cut
+        // here and read out in full below the list.
+        let mut name = loot::display_name(stack, zone);
+        if name.chars().count() > 28 {
+            let cut: String = name.chars().take(25).collect();
+            name = format!("{cut}...");
+        }
+        let label = format!("{name:<28}{count}{slot}");
         // The colour is the rarity: how much of the Zone got into it.
         let rarity = stack.rarity();
         let fg = if i == sel { PALETTE.menu_sel } else { rarity.color() };

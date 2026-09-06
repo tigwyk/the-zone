@@ -202,17 +202,27 @@ pub(crate) fn render_grid(
 }
 
 fn spawn_screen(commands: &mut Commands, grid: &TileGrid, win: &Window) {
+    // The default font (Fira Mono) is monospace with a 0.6-em advance and Bevy's
+    // default 1.2-em line height. Scale the font so the 80×30 grid fills the window
+    // with one even margin, and centre the block (SPEC §4: the origin comes from the
+    // window size and the font's advance).
+    let margin = 16.0;
+    let em_w = GRID_W as f32 * 0.6; // grid width in em
+    let em_h = GRID_H as f32 * 1.2; // grid height in em
+    let font_size = ((win.width() - 2.0 * margin) / em_w)
+        .min((win.height() - 2.0 * margin) / em_h);
+
     let font = TextFont {
-        font_size: FontSize::Px(16.0),
+        font_size: FontSize::Px(font_size),
         ..default()
     };
     let layout = TextLayout::new(Justify::Left, LineBreak::NoWrap);
 
-    // Top-left origin derived from the window size (SPEC §4), one glyph of margin.
-    let margin = 16.0;
+    // Anchor::TOP_LEFT pins the block's top-left corner to the translation and the
+    // text runs right (+x) and down (−y), so this centres the grid.
     let origin = Vec3::new(
-        -win.width() / 2.0 + margin,
-        win.height() / 2.0 - margin,
+        -font_size * em_w / 2.0,
+        font_size * em_h / 2.0,
         0.0,
     );
 

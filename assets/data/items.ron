@@ -27,8 +27,8 @@
     "revolver": Item(name: "Heavy Revolver", base: 1600, kind: Weapon(dice: (3, 6), skill: SmallGuns)),
     "sawn_off": Item(name: "Sawn-off", base: 700, kind: Weapon(dice: (3, 4), skill: SmallGuns)),
     "shotgun": Item(name: "Pump Shotgun", base: 1900, kind: Weapon(dice: (3, 8), skill: SmallGuns)),
-    "rifle": Item(name: "Abakan Rifle", base: 2600, kind: Weapon(dice: (3, 6), skill: SmallGuns)),
-    "sniper": Item(name: "Marksman Rifle", base: 5200, kind: Weapon(dice: (4, 8), skill: SmallGuns)),
+    "rifle": Item(name: "Abakan Rifle", base: 2600, kind: Weapon(dice: (3, 10), skill: SmallGuns)),
+    "sniper": Item(name: "Marksman Rifle", base: 5200, kind: Weapon(dice: (5, 8), skill: SmallGuns)),
 
     // ---- armour (6) ----
     "jacket": Item(name: "Leather Jacket", base: 400, kind: Armor(2)),

@@ -103,7 +103,9 @@ struct TileGrid { w: usize, cells: Vec<Glyph> }   // 80 × 30, row-major
   and content reference names. No `Color::srgb(...)` literals outside the palette.
 - Default font only. **Art is ASCII 32–126.** The loader rejects anything else.
 - Screen origin is derived from the window size and the font's advance, not a magic
-  translation. Window: 1280×720, scale factor override 1.0, vsync.
+  translation. Window: 1280×720 logical, vsync; the native scale factor is respected
+  so a high-DPI (Retina) display gets a sharp, readable window rather than a
+  quarter-sized one.
 
 ## 5. Data formats
 

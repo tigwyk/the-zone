@@ -90,6 +90,9 @@ pub(crate) struct Combat {
     pub ap: i32,
     /// Menu cursor, kept here so it survives a trip to the inventory.
     pub sel: usize,
+    /// A fleeing enemy at far range has to break away for a turn before it is
+    /// gone, so a gun still gets one shot at its back (GDD §8).
+    pub breaking: bool,
 }
 
 /// AP for one turn: 5 + AGI/2 (GDD §4), on the attribute as radiation leaves it.
@@ -112,6 +115,7 @@ pub(crate) fn start(
         band: Band::Far,
         ap: turn_ap(run, zone),
         sel: 0,
+        breaking: false,
     };
 
     // GDD §8: a bloodsucker is not there until it is. Spot it or it opens on you,
@@ -259,6 +263,7 @@ pub(crate) fn act(
         Verb::CloseIn => {
             combat.ap -= AP_MOVE;
             combat.band = combat.band.closer();
+            combat.breaking = false;
             format!("You close to {}.", combat.band.name())
         }
         Verb::FallBack => {
@@ -385,11 +390,17 @@ fn enemy_turn(
 
     // Flee: hurt badly enough to want out, and the kind of thing that runs.
     if enemy.flees && combat.hp * FLEE_BELOW < enemy.hp {
-        // One band per turn, and only away from far does it actually get clear -
-        // so a wounded thing can still be caught and finished.
+        // One band per turn, and only away from far does it actually get clear. At
+        // far it first has to break away, so a gun that wounded it from a distance
+        // still gets one shot at its back instead of watching it vanish the moment
+        // it turns (GDD §8).
         if combat.band == Band::Far {
-            combat.active = false;
-            return format!("The {} breaks and is gone.", enemy.name);
+            if combat.breaking {
+                combat.active = false;
+                return format!("The {} breaks and is gone.", enemy.name);
+            }
+            combat.breaking = true;
+            return format!("The {} turns and runs.", enemy.name);
         }
         combat.band = combat.band.farther();
         return format!("The {} backs away to {}, bleeding.", enemy.name, combat.band.name());
@@ -582,7 +593,8 @@ mod tests {
         let (zone, mut run, mut rng, mut combat) = fixture();
         let flesh = zone.enemies["flesh"].clone();
 
-        // Under a fifth of its health, it wants out, and from far it is gone.
+        // Under a fifth of its health, it wants out. One band a turn, and from far
+        // it first has to break away, so a wounded thing can still be caught.
         combat.band = Band::Melee;
         combat.hp = flesh.hp / FLEE_BELOW - 1; // under a fifth, not at it
         enemy_turn(&flesh, &mut combat, &mut run, &zone, &mut rng);
@@ -590,6 +602,8 @@ mod tests {
         enemy_turn(&flesh, &mut combat, &mut run, &zone, &mut rng);
         assert_eq!(combat.band, Band::Far);
         assert!(combat.active, "still catchable at far");
+        enemy_turn(&flesh, &mut combat, &mut run, &zone, &mut rng);
+        assert!(combat.active && combat.breaking, "it turns to run but is not gone yet");
         enemy_turn(&flesh, &mut combat, &mut run, &zone, &mut rng);
         assert!(!combat.active, "a turn later it is gone");
 
