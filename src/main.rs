@@ -23,7 +23,7 @@ use combat::{build_combat_grid, Combat};
 use dialogue::{build_dialogue_grid, Dialogue};
 use meta::{build_memorial_grid, MetaProgress, SaveDir};
 use quest::{build_board_grid, build_journal_grid, Board};
-use render::{render_grid, spawn_scanlines, toggle_scanlines, TileGrid};
+use render::{render_grid, spawn_scanlines, toggle_scanlines, Glitch, TileGrid};
 use run::{Rng, RunState, BACKGROUNDS, REST_COST, REST_RADS, SKILL_NAMES, TAG_COUNT};
 use screens::{
     build_creation_grid, build_gameover_grid, build_inventory_grid, build_map_grid,
@@ -187,16 +187,33 @@ fn main() {
     // The window, the renderer and the polish. None of it is in `add_game`, so the
     // play-through tests still run headless.
     add_game(&mut app)
+        .init_resource::<Glitch>()
         .add_systems(Startup, (setup, spawn_scanlines, audio::load_cues))
         .add_systems(
             Update,
-            (render_grid, toggle_scanlines, audio::play_cues).after(GameInput),
+            (drive_glitch, render_grid, toggle_scanlines, audio::play_cues).after(GameInput),
         )
         .run();
 }
 
 fn setup(mut commands: Commands) {
     commands.spawn(Camera2d);
+}
+
+/// The glitch is presentation, so it lives here and not in `add_game`: it reads the
+/// current area and paints the HUD with interference where an anomaly is there to
+/// sell. A scanned field glitches half as hard — you have seen it coming.
+fn drive_glitch(
+    mut glitch: ResMut<Glitch>,
+    area: Res<CurrentArea>,
+    zone: Res<ZoneData>,
+    fields: Res<Fields>,
+) {
+    let here = area.0.as_str();
+    glitch.level = zone.areas[here].anomaly.as_ref().map_or(0.0, |a| {
+        let base = (a.danger as f32 / 250.0).clamp(0.0, 1.0);
+        if fields.get(here).scanned { base * 0.5 } else { base }
+    });
 }
 
 // ---- character creation ----
@@ -1146,7 +1163,7 @@ fn pressed_letter(keys: &ButtonInput<KeyCode>) -> Option<char> {
 #[cfg(test)]
 mod playthrough {
     use super::*;
-    use crate::render::GRID_W;
+    use crate::render::{GRID_H, GRID_W};
     use crate::run::Skill;
     use bevy::state::app::StatesPlugin;
 
@@ -1209,7 +1226,7 @@ mod playthrough {
         }
 
         fn screen(&self) -> String {
-            (0..30).map(|y| self.row(y) + "\n").collect()
+            (0..GRID_H).map(|y| self.row(y) + "\n").collect()
         }
 
         fn shows(&self, text: &str) -> bool {

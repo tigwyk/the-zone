@@ -11,15 +11,16 @@ use crate::dialogue::NpcData;
 use crate::loot::{AffixData, ItemStack};
 use crate::meta::EndingData;
 use crate::quest::QuestData;
-use crate::render::{Glyph, TileGrid, PALETTE};
+use crate::render::{Glyph, TileGrid, GRID_W, PALETTE};
 use crate::run::{RunState, Skill};
 use crate::screens::{draw_chrome, draw_message};
 use crate::sim::{visible_menu, Fields, GameClock};
 
-// Fixed row map (SPEC §4): art 0–17, desc 19–20, menu 22–26, message 27, status 28, footer 29.
+// Fixed row map (SPEC §4): art 0–17, desc 19–20, menu 22–26, gap 27, message 28,
+// gap 29, status 30, gap 31, footer 32.
 const DESC_ROW: usize = 19;
 const MENU_ROW: usize = 22;
-pub(crate) const MESSAGE_ROW: usize = 27;
+pub(crate) const MESSAGE_ROW: usize = 28;
 
 // ---- zone.ron model (SPEC §5.2) ----
 
@@ -599,9 +600,10 @@ pub(crate) fn build_area_grid(
     draw_art(grid, zone, run, fields, area_id);
     let area = &zone.areas[area_id];
 
-    // Description rows 19-20.
+    // Description rows 19-20, centered under the art.
     for (dy, line) in area.desc.iter().enumerate() {
-        grid.text(0, DESC_ROW + dy, line, PALETTE.desc, false);
+        let x = GRID_W.saturating_sub(line.chars().count()) / 2;
+        grid.text(x, DESC_ROW + dy, line, PALETTE.desc, false);
     }
 
     // Menu rows 22-26.
@@ -651,6 +653,10 @@ pub(crate) fn draw_art(
     // An unscanned field keeps its tells dull; Scan is what lights them amber (GDD §6).
     let tells_lit = area.anomaly.is_none() || fields.get(area_id).scanned;
 
+    // The art is authored at up to 80 columns; center it in the widescreen grid.
+    let art_width = area.art.iter().map(|l| l.chars().count()).max().unwrap_or(0);
+    let x_offset = GRID_W.saturating_sub(art_width) / 2;
+
     for (y, line) in area.art.iter().enumerate() {
         for (x, ch) in line.chars().enumerate() {
             let mut g = Glyph {
@@ -669,7 +675,7 @@ pub(crate) fn draw_art(
                     g.bold = true;
                 }
             }
-            grid.set(x, y, g);
+            grid.set(x + x_offset, y, g);
         }
     }
 }

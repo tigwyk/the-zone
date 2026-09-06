@@ -21,6 +21,8 @@ pub(crate) struct Palette {
     pub amber: Color,
     pub cyan: Color,
     pub secret: Color,
+    /// Presentation-only: the magenta fringe the glitch effect paints over the HUD.
+    pub glitch: Color,
     pub red: Color,
     pub grey: Color,
     pub desc: Color,
@@ -48,6 +50,7 @@ pub(crate) const PALETTE: Palette = Palette {
     // Cyan: artifacts. Bold cyan is a secret and is nothing else (GDD §11).
     cyan: Color::srgb(0.32, 0.88, 0.90),
     secret: Color::srgb(0.16, 1.00, 1.00),
+    glitch: Color::srgb(1.00, 0.30, 0.90),
     water: Color::srgb(0.28, 0.52, 0.72),
     // Red is damage and warning. Grey is dead.
     red: Color::srgb(1.00, 0.32, 0.26),
@@ -55,9 +58,9 @@ pub(crate) const PALETTE: Palette = Palette {
     grey: Color::srgb(0.46, 0.48, 0.46),
 };
 
-// Fixed grid (SPEC §4).
-pub(crate) const GRID_W: usize = 80;
-pub(crate) const GRID_H: usize = 30;
+// Fixed grid (SPEC §4). 120 columns makes the grid native 16:9 with 33 rows.
+pub(crate) const GRID_W: usize = 120;
+pub(crate) const GRID_H: usize = 33;
 
 #[derive(Clone, Copy)]
 pub(crate) struct Glyph {
@@ -119,6 +122,68 @@ pub(crate) struct AsciiScreen;
 
 #[derive(Component)]
 pub(crate) struct Scanlines;
+
+/// How hard the Zone is interfering with the display right now: 0 is a clean
+/// screen, 1 is almost unreadable. Set by game state (an anomaly field glitches the
+/// HUD) and read by `render_grid`, so the corruption never touches the `TileGrid`
+/// that game logic and the headless tests read.
+#[derive(Resource)]
+pub(crate) struct Glitch {
+    pub level: f32,
+    last_tick: u64,
+}
+
+impl Default for Glitch {
+    fn default() -> Self {
+        Glitch { level: 0.0, last_tick: u64::MAX }
+    }
+}
+
+/// ASCII that reads as "broken" when it lands in the middle of a word.
+const GLITCH_CHARS: &[u8] = b"#%&@*+=/\\|<>!?~^;:.,";
+
+/// A deterministic 0..1 per cell, so the same (x, y, tick) always glitches the same
+/// way, and the whole screen re-rolls together when `tick` advances.
+fn glitch_noise(x: usize, y: usize, tick: u64) -> f32 {
+    let mut h = tick
+        ^ (x as u64).wrapping_mul(0x9E3779B97F4A7C15)
+        ^ (y as u64).wrapping_mul(0xC2B2AE3D27D4EB4F);
+    h = (h ^ (h >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+    h = (h ^ (h >> 27)).wrapping_mul(0x94D049BB133111EB);
+    h ^= h >> 31;
+    (h & 0xFFFFFF) as f32 / 16777216.0
+}
+
+/// Corrupts one glyph: swaps in a broken letter, walks the letter one step over
+/// (bit rot), or repaints it a wrong colour. Bold glyphs — secrets and titles — are
+/// left alone, so a revealed letter stays recognisably bold cyan.
+fn glitch_glyph(g: Glyph, level: f32, noise: f32) -> Glyph {
+    if g.bold || noise >= level {
+        return g;
+    }
+    let pick = noise / level; // 0..1 within the corrupted band
+    let mut out = g;
+    if pick < 0.6 {
+        let chars = GLITCH_CHARS;
+        out.ch = chars[(pick * chars.len() as f32) as usize] as char;
+    } else if pick < 0.8 {
+        out.ch = shift_char(g.ch);
+    } else {
+        let colors = [PALETTE.glitch, PALETTE.cyan, PALETTE.red, PALETTE.amber];
+        out.fg = colors[(pick * colors.len() as f32) as usize];
+    }
+    out
+}
+
+/// One-codepoint "bit rot": the letter walks one step right in ASCII.
+fn shift_char(ch: char) -> char {
+    let c = ch as u32;
+    if (0x21..0x7E).contains(&c) {
+        char::from_u32(c + 1).unwrap_or(ch)
+    } else {
+        ch
+    }
+}
 
 /// Every third row of the display, darkened. `ponytail:` an overlay sprite, not a
 /// post-process shader - it buys the phosphor feel for twenty lines and no WGSL.
@@ -188,22 +253,28 @@ pub(crate) fn toggle_scanlines(
 pub(crate) fn render_grid(
     mut commands: Commands,
     grid: Res<TileGrid>,
+    mut glitch: ResMut<Glitch>,
+    time: Res<Time>,
     screens: Query<Entity, With<AsciiScreen>>,
     windows: Query<&Window>,
 ) {
-    if !grid.is_changed() {
+    // Redraw when the game logic did, or on a glitch tick so the corruption
+    // flickers while the level is above zero (a clean screen never re-renders).
+    let tick = (time.elapsed_secs() * 6.0) as u64;
+    if !grid.is_changed() && (glitch.level <= 0.0 || tick == glitch.last_tick) {
         return;
     }
+    glitch.last_tick = tick;
     for e in &screens {
         commands.entity(e).despawn(); // recursive: also drops glyph spans
     }
     let win = windows.single().expect("primary window");
-    spawn_screen(&mut commands, &grid, win);
+    spawn_screen(&mut commands, &grid, win, glitch.level, tick);
 }
 
-fn spawn_screen(commands: &mut Commands, grid: &TileGrid, win: &Window) {
+fn spawn_screen(commands: &mut Commands, grid: &TileGrid, win: &Window, level: f32, tick: u64) {
     // The default font (Fira Mono) is monospace with a 0.6-em advance and Bevy's
-    // default 1.2-em line height. Scale the font so the 80×30 grid fills the window
+    // default 1.2-em line height. Scale the font so the 120×33 grid fills the window
     // with one even margin, and centre the block (SPEC §4: the origin comes from the
     // window size and the font's advance).
     let margin = 16.0;
@@ -243,7 +314,8 @@ fn spawn_screen(commands: &mut Commands, grid: &TileGrid, win: &Window) {
             let mut cur: Option<Color> = None;
             for y in 0..rows {
                 for x in 0..grid.w {
-                    let g = grid.cells[y * grid.w + x];
+                    let cell = grid.cells[y * grid.w + x];
+                    let g = glitch_glyph(cell, level, glitch_noise(x, y, tick));
                     let color = if g.bold { bold_color(g.fg) } else { g.fg };
                     if cur != Some(color) {
                         if let Some(c) = cur {
@@ -293,5 +365,31 @@ mod tests {
         }
         // Even one row tall it must not panic or run off the buffer.
         assert_eq!(scanline_pixels(1).len(), 4);
+    }
+
+    #[test]
+    fn the_glitch_is_off_when_calm_and_never_touches_bold() {
+        let plain = Glyph { ch: 'A', fg: PALETTE.ground, bold: false };
+
+        // No glitch: every cell passes through untouched, whatever the noise.
+        assert_eq!(glitch_glyph(plain, 0.0, 0.0).ch, 'A');
+        assert_eq!(glitch_glyph(plain, 0.0, 0.5).fg, PALETTE.ground);
+
+        // A bold glyph (a secret or a title) is never corrupted, even at full tilt.
+        let secret = Glyph { ch: 'D', fg: PALETTE.secret, bold: true };
+        let out = glitch_glyph(secret, 1.0, 0.0);
+        assert_eq!(out.ch, 'D');
+        assert_eq!(out.fg, PALETTE.secret);
+
+        // At full glitch a non-bold cell under the level comes out broken or recoloured.
+        let glitched = glitch_glyph(plain, 1.0, 0.1);
+        assert!(
+            glitched.ch != 'A' || glitched.fg != PALETTE.ground,
+            "a full-glitch cell must change"
+        );
+
+        // Deterministic: the same (x, y, tick) reads the same, and the noise stays in range.
+        assert_eq!(glitch_noise(7, 9, 3), glitch_noise(7, 9, 3));
+        assert!((0.0..1.0).contains(&glitch_noise(7, 9, 3)));
     }
 }

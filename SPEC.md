@@ -84,23 +84,25 @@ Every screen in the game is a `build_grid`-style function that writes into the o
 
 ```rust
 struct Glyph { ch: char, fg: Color, bold: bool }
-struct TileGrid { w: usize, cells: Vec<Glyph> }   // 80 × 30, row-major
+struct TileGrid { w: usize, cells: Vec<Glyph> }   // 120 × 33, row-major
 ```
 
-- Grid is **80 columns × 30 rows**. Row map is fixed (GDD §3): art 0–17, blank 18,
-  description 19–20, blank 21, menu 22–26, message 27, status 28, footer 29.
-  Modal screens own rows 0–27 and must not touch 28–29.
+- Grid is **120 columns × 33 rows** (native 16:9). Row map is fixed (GDD §3):
+  art 0–17, blank 18, description 19–20, blank 21, menu 22–26, blank 27, message 28,
+  blank 29, status 30, blank 31, footer 32. The art is authored ≤80 columns and drawn
+  centered. Modal screens own rows 0–27 and must not touch 28–32.
 - `TileGrid::set` silently ignores out-of-range writes. Build functions may rely on
   that instead of bounds-checking every string. The exception is row 27: draw it with
   `screens::draw_message`, which truncates with an ellipsis, because a message built
   out of several events must not lose its tail without saying so.
 - **Presentation that needs a window lives in `main`**, never in `add_game`: the
-  renderer, the scanline overlay and the audio cues are all registered there, which is
-  what keeps the play-through tests headless.
+  renderer, the scanline overlay, the HUD-glitch pass and the audio cues are all
+  registered there, which is what keeps the play-through tests headless.
 - `bold` renders as brightness (`bold_color`), not a bold face. Do not add a font.
 - **Palette** is one `Palette` const with named colors: `dim, ground, pale, fire,
-  smoke, water, amber, cyan, secret, red, grey, desc, menu, menu_sel, status`. Code
-  and content reference names. No `Color::srgb(...)` literals outside the palette.
+  smoke, water, amber, cyan, secret, glitch, red, grey, desc, menu, menu_sel, status`.
+  `glitch` is presentation-only (the HUD-interference fringe); content never names it.
+  Code and content reference names. No `Color::srgb(...)` literals outside the palette.
 - Default font only. **Art is ASCII 32–126.** The loader rejects anything else.
 - Screen origin is derived from the window size and the font's advance, not a magic
   translation. Window: 1280×720 logical, vsync; the native scale factor is respected

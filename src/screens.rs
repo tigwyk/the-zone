@@ -10,22 +10,22 @@ use crate::run::{
 };
 use crate::sim::{artifact_rads_per_hour, attr, is_night, GameClock};
 
-const STATUS_ROW: usize = 28;
-const FOOTER_ROW: usize = 29;
+const STATUS_ROW: usize = 30;
+const FOOTER_ROW: usize = 32;
 const HINT_ROW: usize = 25;
 const LIST_ROW: usize = 4;
 /// How many rows each long list gets before it starts scrolling.
 const PACK_ROWS: usize = 16;
 const MAP_ROWS: usize = 18;
-/// Full-width text sits here, clear of the preview column at 44.
+/// Full-width text sits here, clear of the preview column at 84.
 const BLURB_ROW: usize = 17;
 /// The right-hand column on the creation and inventory screens.
-pub(crate) const PANEL_COL: usize = 44;
+pub(crate) const PANEL_COL: usize = 84;
 /// The last row the panel occupies. Below it, text may run the full width.
 #[allow(dead_code)] // read by the gutter guard in the playthrough tests
 pub(crate) const PANEL_LAST_ROW: usize = 15;
 
-/// Rows 28–29, on every in-run screen (SPEC §4).
+/// Rows 30 and 32, on every in-run screen; 31 is the gap between them (SPEC §4).
 pub(crate) fn draw_chrome(grid: &mut TileGrid, run: &RunState, clock: &GameClock) {
     let status = format!(
         "  HP {}/{}  RAD {}  RU {}  Day {} {}",
@@ -149,7 +149,7 @@ pub(crate) fn build_creation_grid(
                 grid.text(2, LIST_ROW + i, &format!("{} (locked)", b.name), fg, false);
             }
         }
-        // Below the preview column, which owns everything from column 44.
+        // Below the preview column, which owns everything from column 84.
         grid.text(0, BLURB_ROW, BACKGROUNDS[sel].blurb, PALETTE.desc, false);
         hint(grid, "Up/Down choose   Enter confirm");
     } else {
@@ -215,11 +215,11 @@ pub(crate) fn build_inventory_grid(
         // count and the "[wielded]" marker under the panel. Long affixed names are cut
         // here and read out in full below the list.
         let mut name = loot::display_name(stack, zone);
-        if name.chars().count() > 28 {
-            let cut: String = name.chars().take(25).collect();
+        if name.chars().count() > 68 {
+            let cut: String = name.chars().take(65).collect();
             name = format!("{cut}...");
         }
-        let label = format!("{name:<28}{count}{slot}");
+        let label = format!("{name:<68}{count}{slot}");
         // The colour is the rarity: how much of the Zone got into it.
         let rarity = stack.rarity();
         let fg = if i == sel { PALETTE.menu_sel } else { rarity.color() };
@@ -425,7 +425,7 @@ pub(crate) fn build_trade_grid(
         );
         let p = p.map_or("--".to_string(), |v| v.to_string());
         let count = if stack.count > 1 { format!("{:>3}", stack.count) } else { "   ".into() };
-        let label = format!("{:<30}{count}{p:>9} RU", loot::display_name(stack, zone));
+        let label = format!("{:<60}{count}{p:>9} RU", loot::display_name(stack, zone));
         let rarity = stack.rarity();
         let fg = if i == sel { PALETTE.menu_sel } else { rarity.color() };
         grid.text(0, LIST_ROW + i, if i == sel { "> " } else { "  " }, fg, false);

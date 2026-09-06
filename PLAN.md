@@ -31,7 +31,7 @@ map), `sim.rs` (the Zone acting on you), `combat.rs` (bands, AP turns), `loot.rs
 (what outlives a run), `audio.rs` (three cues), and `balance.rs` (the combat bench,
 test-only).
 
-One 80×30 `TileGrid` blitted as a single `Text2d` with a `TextSpan` per same-colour
+One 120×33 `TileGrid` blitted as a single `Text2d` with a `TextSpan` per same-colour
 run. Eleven states: `CharacterCreation, Area, Inventory, Trade, Combat, Dialogue, Jobs,
 Map, Journal, Memorial, GameOver`. Ten data files under `assets/data/`, plus one
 `.area` scene per area, and every id validated across all of them at load.
@@ -197,9 +197,10 @@ revisit only if we ever animate per-frame.
   **Art is ASCII-only** (no box-drawing / Unicode). That's a content rule, not a bug to
   fix; it also matches the "ASCII/ANSI" pillar. Ship a full monospace `.ttf` only if a
   scene genuinely needs more glyphs.
-- **Grid: 80×30**, settled in M1 — art up to 80 wide × 18 tall, then 2 description
-  lines, the menu, the message line, the status row and the footer. The top-left
-  translation is derived from window size × font advance, not a magic number.
+- **Grid: 120×33** (native 16:9), settled in M1 — art up to 80 wide × 18 tall, centered,
+  then 2 description lines, the menu, the message line, the status row, and blank gap
+  rows around the message, status and footer. The top-left translation is derived from
+  window size × font advance, not a magic number.
 
 **Dependencies — the whole list, and it did not grow:**
 - `bevy` (pinned `=0.19.1`), with the `wav` feature so the cues in `assets/audio`

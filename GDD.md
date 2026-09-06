@@ -52,21 +52,24 @@ that the menu never lists. You die, someone else goes in, and the Zone is still 
 
 ## 3. The screen
 
-One fixed 80×30 character grid. No scrolling, no mouse.
+One fixed 120×33 character grid. No scrolling, no mouse.
 
 ```
-row  0–17  ART          the area scene, up to 80×18, secrets in bold cyan
+row  0–17  ART          the area scene, up to 80×18, centered; secrets in bold cyan
 row  18    (blank)
 row  19–20 DESCRIPTION  two lines max, second person, present tense
 row  21    (blank)
 row  22–26 MENU         up to 5 contextual verbs, "> " marks the selection
-row  27    MESSAGE      result of the last action ("You pry open the hatch.")
-row  28    STATUS       HP 24/32  RAD 210  AP —  ₽ 1,340  Day 3 06:40  [emission soon]
-row  29    FOOTER       Tab Inventory  F1 Status  F2 Map  F3 Journal  F5 Save  Esc Back
+row  27    (blank)
+row  28    MESSAGE      result of the last action ("You pry open the hatch.")
+row  29    (blank)
+row  30    STATUS       HP 24/32  RAD 210  AP —  ₽ 1,340  Day 3 06:40  [emission soon]
+row  31    (blank)
+row  32    FOOTER       Tab Inventory  F2 Map  F3 Journal  F4 Scanlines  F5 Save  Esc Back
 ```
 
 Modal screens (Inventory, Trade, Map, Dialogue, Combat, Status, Journal) replace rows
-0–27 and keep rows 28–29.
+0–27 and keep rows 28–32.
 
 **Input:**
 
@@ -438,6 +441,9 @@ what they asked for three times in four.
   the only one meant to land.
 - The display is a phosphor screen: every third scanline is darkened. It can be turned
   off with F4, because readability beats decoration.
+- In an anomaly field the HUD itself glitches — letters rot a step or break into
+  symbols, and magenta/cyan fringes flicker across the text — heavier when the field is
+  unscanned. It is presentation only: it corrupts the render, never the game state.
 
 ---
 
