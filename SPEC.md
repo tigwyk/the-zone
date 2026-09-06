@@ -29,8 +29,8 @@ src/combat.rs      bands, AP turns, the enemy machine, the combat screen (M4)
 src/dialogue.rs    NPCs, menu-option dialogue, the dialogue screen        (M5)
 src/quest.rs       jobs, standing, the job board and journal screens      (M5)
 src/meta.rs        memorial, unlocks, suspend, endings, the save files    (M6)
-src/loot.rs        rarity, affixes, item instances, rolling              (M8)
-src/balance.rs     combat bench: loadouts, trials, reports    (test-only, M8)
+src/loot.rs        rarity, affixes, item instances, rolling              (M9)
+src/balance.rs     combat bench: loadouts, trials, reports   (test-only, M10)
 src/audio.rs       the three cues                                        (M7)
 tools/make_sounds.py  synthesises assets/audio; the .wav files are the input
 assets/data/       all game content — see §5
@@ -48,8 +48,9 @@ Every screen in the game is a `build_grid`-style function that writes into the o
 
 - **State lives in resources.** `RunState`, `CurrentArea`, `MenuSelection`,
   `MessageLine`, `ZoneData`, `GameClock`, `FactionRep`, `MetaProgress`. Do not add
-  `Component`s to model game objects until something has many live instances (combat
-  enemies in M4 are the first). ECS entities exist for rendering only.
+  `Component`s to model game objects until something has many live instances. Combat
+  was expected to be the first case and was not: one enemy at a time fits in a `Combat`
+  resource. ECS entities still exist for rendering only.
 - **Bevy `States`** drive which input and build systems run:
   `MainMenu, CharacterCreation, Area, Inventory, Trade, Map, Journal, Status, Dialogue,
   Combat, GameOver, Ending`. `Area` is home; every other in-run state returns to it on
@@ -166,8 +167,8 @@ Zone(
 | `Scan`, `ThrowBolt`, `PushThrough`, `TakeArtifact` | M3 | anomaly field verbs |
 | `SetFlag(String)` | M3 | quest/secret flag |
 | `Memorial` | M6 | show the fallen |
-| `Lore(LoreId)` | M7 | turn up a lore entry; kept across runs |
-| `Give(ItemId, u32)` | M7 | put something in the pack, once per area per run |
+| `Lore(LoreId)` | M8 | turn up a lore entry; kept across runs |
+| `Give(ItemId, u32)` | M8 | put something in the pack, once per area per run |
 | `End(EndingId)` | M6 | end the run on that ending; nothing follows it |
 
 Items and vendors sit in the same file (SPEC §5.3 carves them out later):
@@ -367,12 +368,20 @@ Letters are never menu accelerators. Do not add mouse handling.
   (`SaveDir`), not the repo.
 - Every commit builds and runs. A commit that panics on startup gets reverted.
 
-## 10. Definition of done for a milestone
+## 10. Definition of done
 
-1. Every step in the PLAN.md milestone checklist is ticked.
-2. `cargo build` clean, `cargo test` green, `cargo run` reaches the Area state.
-3. The milestone's acceptance test (named in PLAN.md) exists as a `playthrough` test
-   and passes.
-4. PLAN.md §0 status paragraph updated; any new `Action` variant added to §5.2 here;
-   any new number added to the GDD table it belongs in.
-5. Nothing was added that the next milestone did not ask for.
+The roadmap is finished, so this is now the bar for any piece of work, not just a
+milestone.
+
+1. `cargo build` clean — **no warnings** — `cargo test` green, `cargo run` reaches the
+   Area state.
+2. Whatever a player can now do is a `playthrough` test: press the keys, read the
+   `TileGrid` back. A feature nobody can reach in a test is a feature nobody has seen.
+3. Anything with a number in it that a player will feel — damage, prices, drop rates,
+   difficulty — is **measured**, not asserted from the armchair. `balance.rs` for
+   combat, the ignored printers in `loot.rs` for drops. A finding worth acting on gets
+   a guard test so it cannot drift back.
+4. Docs follow the code in the same commit: PLAN.md §0 for what now stands, §8 for what
+   it opened or closed; any new `Action`, `Gate`, `Req`, `Effect` or data file in §5
+   here; any number a designer would want in the GDD table it belongs in.
+5. Nothing speculative. If it has no caller, it does not ship.
