@@ -30,6 +30,8 @@ pub(crate) fn action_minutes(action: &Action) -> u32 {
         | Action::Talk(_)
         | Action::Jobs(_)
         | Action::Memorial
+        | Action::Lore(_)
+        | Action::Give(_, _)
         | Action::End(_) => 0,
     }
 }

@@ -28,6 +28,14 @@ struct Zone {
     areas: HashMap<String, Area>,
 }
 
+/// One thing the Zone tells you. Found once, kept for good (GDD §10).
+#[derive(Deserialize, Clone)]
+#[serde(rename = "Lore")]
+pub(crate) struct LoreData {
+    pub title: String,
+    pub text: String,
+}
+
 /// A faction and the ones it cannot stand (GDD §9).
 #[derive(Deserialize, Clone)]
 #[serde(rename = "Faction")]
@@ -53,6 +61,12 @@ pub(crate) struct EnemyData {
     /// GDD §8: bandits and Fleshes run at under 20% HP; bloodsuckers do not.
     #[serde(default)]
     pub flees: bool,
+    /// Invisible until it strikes: a PER check to act first, or it opens on you.
+    #[serde(default)]
+    pub ambush: bool,
+    /// Gets into your head: a will check each turn, or the action is lost.
+    #[serde(default)]
+    pub mind: bool,
     pub loot: Vec<(String, u32)>,
 }
 
@@ -106,6 +120,11 @@ pub(crate) enum Action {
     Talk(String),
     Jobs(String),
     Memorial,
+    /// Turn up a lore entry. Found once; it outlives the stalker who found it.
+    Lore(String),
+    /// Put something in the pack, once. GDD §8: a secret has to pay off, and the
+    /// payoff is a room, an artifact, or something you can carry out.
+    Give(String, u32),
     /// End the run on this ending. There is nothing after it.
     End(String),
 }
@@ -187,6 +206,7 @@ pub(crate) struct ZoneData {
     pub quests: HashMap<String, QuestData>,
     pub factions: HashMap<String, FactionData>,
     pub endings: HashMap<String, EndingData>,
+    pub lore: HashMap<String, LoreData>,
 }
 
 impl FromWorld for ZoneData {
@@ -267,6 +287,7 @@ pub(crate) fn load_zone(data_dir: &Path) -> ZoneData {
         quests: read_ron(&data_dir.join("quests.ron")),
         factions: read_ron(&data_dir.join("factions.ron")),
         endings: read_ron(&data_dir.join("endings.ron")),
+        lore: read_ron(&data_dir.join("lore.ron")),
     };
     data.validate_ids();
     data
@@ -295,6 +316,14 @@ impl ZoneData {
             Action::End(ending) => assert!(
                 self.endings.contains_key(ending),
                 "{where_} ends on unknown ending '{ending}'"
+            ),
+            Action::Lore(entry) => assert!(
+                self.lore.contains_key(entry),
+                "{where_} turns up unknown lore '{entry}'"
+            ),
+            Action::Give(item, _) => assert!(
+                self.items.contains_key(item),
+                "{where_} hands over unknown item '{item}'"
             ),
             // SPEC §8: one line, at most 78 characters, and no shouting.
             Action::Say(line) => {
@@ -377,6 +406,13 @@ impl ZoneData {
             }
         }
         for (id, quest) in &self.quests {
+            if let Some(needed) = &quest.requires {
+                assert!(
+                    self.quests.contains_key(needed),
+                    "quests.ron: '{id}' follows unknown job '{needed}'"
+                );
+                assert_ne!(needed, id, "quests.ron: '{id}' requires itself");
+            }
             assert!(
                 self.factions.contains_key(&quest.faction),
                 "quests.ron: '{id}' belongs to unknown faction '{}'",
@@ -655,13 +691,115 @@ mod tests {
         load_area_file(&p);
     }
 
+    /// Every action anywhere in the data, so a coverage check cannot miss one.
+    #[cfg(test)]
+    fn all_actions(zone: &ZoneData) -> Vec<&Action> {
+        let mut out: Vec<&Action> = Vec::new();
+        for area in zone.areas.values() {
+            out.extend(area.menu.iter().map(|(_, a)| a));
+            out.extend(area.secrets.values().map(|s| &s.action));
+        }
+        for npc in zone.npcs.values() {
+            for node in npc.nodes.values() {
+                out.extend(node.options.iter().filter_map(|l| l.action.as_ref()));
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn every_area_can_be_walked_to_from_the_start() {
+        // Thirty areas wired by hand: an orphan is a content bug that no other
+        // test would ever reach, because no player could either.
+        let zone = load_zone(Path::new("assets/data"));
+        let mut seen: HashSet<String> = HashSet::from([zone.start.clone()]);
+        let mut queue = vec![zone.start.clone()];
+        while let Some(id) = queue.pop() {
+            for dest in exits(&zone.areas[&id]) {
+                if seen.insert(dest.clone()) {
+                    queue.push(dest);
+                }
+            }
+        }
+        let orphans: Vec<&String> = zone.areas.keys().filter(|id| !seen.contains(*id)).collect();
+        assert!(orphans.is_empty(), "unreachable: {orphans:?}");
+    }
+
+    #[test]
+    fn every_written_thing_is_reachable_in_play() {
+        let zone = load_zone(Path::new("assets/data"));
+        let actions = all_actions(&zone);
+
+        // Lore nobody can turn up is lore nobody wrote.
+        let found: HashSet<&str> = actions
+            .iter()
+            .filter_map(|a| match a {
+                Action::Lore(id) => Some(id.as_str()),
+                _ => None,
+            })
+            .collect();
+        let missing: Vec<&String> = zone.lore.keys().filter(|id| !found.contains(id.as_str())).collect();
+        assert!(missing.is_empty(), "unreachable lore: {missing:?}");
+
+        // Same for the boards: a faction with jobs and no board is a dead end.
+        let boards: HashSet<&str> = actions
+            .iter()
+            .filter_map(|a| match a {
+                Action::Jobs(f) => Some(f.as_str()),
+                _ => None,
+            })
+            .collect();
+        for (id, quest) in &zone.quests {
+            assert!(
+                boards.contains(quest.faction.as_str()),
+                "job '{id}' is on a board nobody can open ({})",
+                quest.faction
+            );
+        }
+
+        // And every enemy should live somewhere.
+        let homes: HashSet<&str> = zone
+            .areas
+            .values()
+            .filter_map(|a| a.encounter.as_deref())
+            .collect();
+        let unused: Vec<&String> = zone.enemies.keys().filter(|id| !homes.contains(id.as_str())).collect();
+        assert!(unused.is_empty(), "enemies with nowhere to be: {unused:?}");
+    }
+
     #[test]
     fn loads_zone_data() {
         let zone = load_zone(Path::new("assets/data"));
         assert_eq!(zone.start, "camp");
-        assert_eq!(zone.areas.len(), 8);
+        assert_eq!(zone.areas.len(), 30); // GDD §12
         assert_eq!(zone.endings.len(), 6); // GDD §12
         assert!(zone.npcs.contains_key("room"));
+        // GDD §12 targets, so that content drifting below them fails the build.
+        assert_eq!(zone.npcs.len(), 10);
+        assert_eq!(zone.lore.len(), 20);
+        assert!(zone.quests.len() >= 20, "15 jobs and a five-step chain");
+        assert!(zone.enemies.len() >= 6);
+        assert_eq!(zone.vendors.len(), 4);
+        let anomalies = zone.areas.values().filter(|a| a.anomaly.is_some()).count();
+        assert_eq!(anomalies, 8, "eight anomaly fields");
+        let artifacts = zone
+            .items
+            .values()
+            .filter(|i| matches!(i.kind, ItemKind::Artifact { .. }))
+            .count();
+        assert_eq!(artifacts, 12);
+        assert!(zone.items.len() - artifacts >= 40, "forty items besides");
+        // About ten areas you can only reach through the art (GDD §5).
+        let secret_targets: std::collections::HashSet<&str> = zone
+            .areas
+            .values()
+            .flat_map(|a| a.secrets.values())
+            .filter_map(|s| match &s.action {
+                Action::Travel(dest) => Some(dest.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(secret_targets.len() >= 10, "{secret_targets:?}");
         assert!(zone.npcs.contains_key("grisha"));
         assert!(zone.quests.contains_key("cull"));
         assert_eq!(zone.factions.len(), 7);

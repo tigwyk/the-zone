@@ -506,6 +506,23 @@ fn perform(action: &Action, act: &mut Act, next_state: &mut NextState<GameState>
             act.message.0.clear();
             next_state.set(GameState::Jobs);
         }
+        Action::Give(item, count) => {
+            let key = format!("took:{here}:{item}");
+            act.message.0 = if act.run.flags.insert(key) {
+                act.run.add_item(item, *count);
+                format!("You come away with the {}.", act.zone.items[item].name)
+            } else {
+                "You have already had that out of here.".into()
+            };
+        }
+        Action::Lore(entry) => {
+            let lore = &act.zone.lore[entry];
+            act.message.0 = if act.run.lore.insert(entry.clone()) {
+                format!("You turn up something: {}. It is in the journal.", lore.title)
+            } else {
+                lore.title.clone()
+            };
+        }
         Action::Memorial => {
             act.message.0.clear();
             next_state.set(GameState::Memorial);
@@ -583,7 +600,8 @@ fn perform(action: &Action, act: &mut Act, next_state: &mut NextState<GameState>
             // One resident, one fight per run.
             if act.run.flags.insert(format!("met:{now}")) {
                 let combat = &mut *act.combat;
-                act.message.0 = combat::start(&enemy, combat, &act.run, &act.zone);
+                act.message.0 =
+                    combat::start(&enemy, combat, &mut act.run, &act.zone, &mut act.rng);
                 next_state.set(GameState::Combat);
             }
         }
@@ -892,7 +910,7 @@ fn journal_input(
         return;
     }
 
-    let n = quest::taken(&zone, &run).len();
+    let n = quest::journal_entries(&zone, &run).len();
     let mut changed = false;
     if n > 0 {
         if keys.just_pressed(KeyCode::ArrowUp) {
@@ -1373,7 +1391,11 @@ mod playthrough {
         // The flag set back in the hatch is what lights S here.
         assert!(sim.run().is_revealed("quarry", 'S'));
         sim.press(KeyCode::KeyS);
-        sim.assert_shows("The log was right");
+        sim.assert_shows("Army Medkit");
+        assert!(sim.run().items.iter().any(|(i, _)| i == "army_medkit"));
+        // A crate is emptied once, not once a visit.
+        sim.press(KeyCode::KeyS);
+        sim.assert_shows("already had that");
     }
 
     #[test]
@@ -1457,6 +1479,99 @@ mod playthrough {
         }
         assert_eq!(sim.state(), GameState::GameOver);
         sim.assert_shows("THE ZONE IS STILL THERE");
+    }
+
+    #[test]
+    fn the_deep_zone_is_walkable_and_the_fields_pay() {
+        let mut sim = Sim::with_saves("deep");
+        sim.roll_a_stalker();
+        sim.arm_with("rifle");
+        sim.run_mut().skills[Skill::StalkerLore.index()] = 95;
+
+        // South out of the camp, through the reeds, past whatever lives in them.
+        sim.choose("Travel");
+        sim.choose("South, into the reeds");
+        if sim.state() == GameState::Combat {
+            sim.fight();
+        }
+        sim.assert_shows("Reed flats south of the road");
+
+        // East into the acid, read it, and cross on the line you found.
+        sim.choose("Wade east");
+        sim.assert_shows("Low ground east of the reeds");
+        // A plain scan opens the way; only a crit turns up the artifact with it
+        // (GDD §6), so what is pinned here is the crossing, not the prize.
+        let hp = sim.run().hp;
+        sim.choose("Scan");
+        sim.choose("Push Through");
+        assert_eq!(sim.run().hp, hp, "a field you have read is crossed unharmed");
+        if sim.state() == GameState::Combat {
+            sim.fight();
+        }
+        sim.assert_shows("A camp of tents in the southern woods");
+
+        // Freedom runs its own board, and it is not the Loners' board.
+        sim.choose("Job board");
+        sim.assert_shows("JOB BOARD - Freedom");
+        sim.assert_shows("Eyes on the antenna");
+        sim.press(KeyCode::Escape);
+
+        // On to the junkyard, and the dead town beyond it.
+        sim.choose("The junkyard road");
+        if sim.state() == GameState::Combat {
+            sim.fight();
+        }
+        sim.choose("The dead town road");
+        sim.assert_shows("A street of empty houses");
+        assert!(sim.run().discovered.len() >= 6, "the map is filling in");
+    }
+
+    #[test]
+    fn the_main_chain_hands_out_one_step_at_a_time() {
+        let mut sim = Sim::with_saves("chain");
+        sim.roll_a_stalker();
+        sim.choose("The bar");
+        sim.choose("Job board");
+
+        // Only the first link is on the board; the rest are behind it (GDD §9).
+        sim.assert_shows("The way in, first: ask");
+        assert!(!sim.shows("The way in, second"), "{}", sim.screen());
+        sim.choose_listed("The way in, first: ask");
+        assert!(sim.run().quests_taken.contains("way_1"));
+        sim.press(KeyCode::Escape);
+
+        // Settle it by standing in the dead town, and the next link opens.
+        sim.run_mut().discovered.insert("dead_town".into());
+        sim.choose("Outside"); // any action settles what is finished
+        assert!(sim.run().quests_done.contains("way_1"), "{}", sim.screen());
+
+        sim.choose("The bar");
+        sim.choose("Job board");
+        sim.assert_shows("The way in, second: pay");
+    }
+
+    #[test]
+    fn lore_is_found_once_and_kept_in_the_journal() {
+        let mut sim = Sim::with_saves("lore");
+        sim.roll_a_stalker();
+        sim.choose("Travel");
+
+        assert!(sim.run().lore.is_empty());
+        sim.choose("Read the ground");
+        sim.assert_shows("You turn up something");
+        assert!(sim.run().lore.contains("whirligigs"));
+
+        // It reads back in the journal, alongside the work.
+        sim.press(KeyCode::F3);
+        assert_eq!(sim.state(), GameState::Journal);
+        sim.assert_shows("[lore] Reading a whirligig");
+        sim.assert_shows("The grass leans in");
+        sim.press(KeyCode::Escape);
+
+        // Found once: turning it up again does not announce it as new.
+        sim.choose("Read the ground");
+        assert!(!sim.shows("You turn up something"), "{}", sim.screen());
+        assert_eq!(sim.run().lore.len(), 1);
     }
 
     #[test]
@@ -1683,7 +1798,9 @@ mod playthrough {
         sim.roll_a_stalker();
         let purse = sim.run().rubles;
 
-        sim.choose("Trade");
+        sim.choose("Talk to Sidorovich");
+        assert_eq!(sim.state(), GameState::Dialogue);
+        sim.choose_listed("Show me the shelf.");
         assert_eq!(sim.state(), GameState::Trade);
         sim.assert_shows("TRADE - Sidorovich");
         sim.assert_shows("Medkit");

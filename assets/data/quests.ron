@@ -1,37 +1,119 @@
-// GDD §9 lists five quest shapes. Three of them ride on state the game already
-// keeps - what you carry, where you have been, what you have killed - so those are
-// the three that exist. Escort and deliver need followers and NPC-to-NPC routes.
+// Fifteen jobs and a five-step chain (GDD §12, §9). Goals ride on state the run
+// already keeps: what you carry, where you have been, what you have killed.
 {
+    // ---- Loners: the camp and the bar ----
     "walk_the_rim": Quest(
-        name: "Walk the rim",
-        faction: "loners",
+        name: "Walk the rim", faction: "loners",
         text: "Grisha will pay for a first-hand look at the quarry rim.",
-        goal: Reach("quarry"),
-        rubles: 400,
-        rep: 5,
+        goal: Reach("quarry"), rubles: 400, rep: 5,
     ),
     "grishas_pot": Quest(
-        name: "An eye for the pot",
-        faction: "loners",
+        name: "An eye for the pot", faction: "loners",
         text: "Grisha wants a Flesh eye. He will not say what for.",
-        goal: Have("flesh_eye"),
-        rubles: 800,
-        rep: 10,
+        goal: Have("flesh_eye"), rubles: 800, rep: 10,
     ),
+    "dog_tails": Quest(
+        name: "Thin the pack", faction: "loners",
+        text: "Blind dogs have got into the swamp track. Bring a tail as proof.",
+        goal: Kill("blind_dog"), rubles: 600, rep: 8,
+    ),
+    "bandit_problem": Quest(
+        name: "A word with the Junkyard", faction: "loners",
+        text: "Somebody from the Junkyard has been taxing the road. Settle it.",
+        goal: Kill("bandit"), rubles: 1200, rep: 12,
+    ),
+    "the_toolkit": Quest(
+        name: "Sidorovich's toolkit", faction: "loners",
+        text: "A repair toolkit walked off in somebody's pack. Any toolkit will do.",
+        goal: Have("toolkit"), rubles: 700, rep: 6,
+    ),
+
+    // ---- Duty: Checkpoint 4 ----
     "cull": Quest(
-        name: "Cull the rim",
-        faction: "duty",
+        name: "Cull the rim", faction: "duty",
         text: "Duty wants the Flesh on the quarry rim dead, not studied.",
-        goal: Kill("flesh"),
-        rubles: 1000,
-        rep: 15,
+        goal: Kill("flesh"), rubles: 1000, rep: 15,
     ),
     "sample": Quest(
-        name: "Requisition: one artifact",
-        faction: "duty",
+        name: "Requisition: one artifact", faction: "duty",
         text: "Osip wants a Gravi crated and contained. It pays better than Sidorovich.",
-        goal: Have("gravi"),
-        rubles: 4000,
-        rep: 20,
+        goal: Have("gravi"), rubles: 4000, rep: 20,
+    ),
+    "bloodsucker_bounty": Quest(
+        name: "The thing in the pipes", faction: "duty",
+        text: "Two patrols short. Duty is done sending patrols. Bring the tentacle.",
+        goal: Kill("bloodsucker"), rubles: 5000, rep: 25,
+    ),
+    "hold_the_line": Quest(
+        name: "Hold the line", faction: "duty",
+        text: "Stand at the dead town and report what is moving through it.",
+        goal: Reach("dead_town"), rubles: 1400, rep: 12,
+    ),
+
+    // ---- Ecologists: the Lab ----
+    "reach_the_lab": Quest(
+        name: "Report to the Lab", faction: "ecologists",
+        text: "The Lab has been asking for couriers. Present yourself at the door.",
+        goal: Reach("lab"), rubles: 900, rep: 15,
+    ),
+    "slime_sample": Quest(
+        name: "One Slime, unopened", faction: "ecologists",
+        text: "The professor wants an acid artifact that nobody has already prodded.",
+        goal: Have("slime"), rubles: 3000, rep: 18,
+    ),
+    "the_documents": Quest(
+        name: "The sealed file", faction: "ecologists",
+        text: "Paperwork went into the vault under the Lab and did not come out.",
+        goal: Have("documents"), rubles: 3600, rep: 20,
+    ),
+
+    // ---- Freedom: the south camp ----
+    "see_the_radar": Quest(
+        name: "Eyes on the antenna", faction: "freedom",
+        text: "Freedom wants somebody to stand under the radar and come back sane.",
+        goal: Reach("radar"), rubles: 2600, rep: 20,
+    ),
+    "compass_run": Quest(
+        name: "Something that points", faction: "freedom",
+        text: "Bring back a Compass. Freedom is tired of losing people in the rifts.",
+        goal: Have("compass"), rubles: 3400, rep: 18,
+    ),
+
+    // ---- Mercs: whoever is paying ----
+    "moonlight_contract": Quest(
+        name: "Contract: Moonlight", faction: "mercs",
+        text: "A buyer nobody has met wants a Moonlight. The money is real enough.",
+        goal: Have("moonlight"), rubles: 6000, rep: 15,
+    ),
+
+    // ---- The main chain: five jobs that end with a route to the centre ----
+    "way_1": Quest(
+        name: "The way in, first: ask", faction: "loners",
+        text: "There is a hermit in the dead town who has been further in than anyone. Go and stand in front of him.",
+        goal: Reach("dead_town"), rubles: 500, rep: 5,
+    ),
+    "way_2": Quest(
+        name: "The way in, second: pay", faction: "loners",
+        text: "The hermit talks for vodka and only vodka. Bring a bottle.",
+        goal: Have("vodka"), rubles: 600, rep: 5,
+        requires: Some("way_1"),
+    ),
+    "way_3": Quest(
+        name: "The way in, third: listen", faction: "loners",
+        text: "He says the antenna is the only thing out here that knows the road. Go and hear it.",
+        goal: Reach("radar"), rubles: 1800, rep: 10,
+        requires: Some("way_2"),
+    ),
+    "way_4": Quest(
+        name: "The way in, fourth: carry", faction: "loners",
+        text: "You do not walk the last stretch without something that points. Find a Compass.",
+        goal: Have("compass"), rubles: 2400, rep: 10,
+        requires: Some("way_3"),
+    ),
+    "way_5": Quest(
+        name: "The way in, last: go", faction: "loners",
+        text: "The approach is open to you now. Whatever you have been carrying, carry it in.",
+        goal: Reach("approach"), rubles: 5000, rep: 25,
+        requires: Some("way_4"),
     ),
 }

@@ -1,0 +1,84 @@
+// Twenty things the Zone tells you (GDD §12). Found once, kept for good, and read
+// back in the journal. Some of them are true.
+{
+    "the_first_day": Lore(
+        title: "The first day",
+        text: "Nobody agrees what happened. The men who were on shift are not available to ask, and the men who were not on shift all tell it differently. What everyone agrees on is the light, and that it came up from the ground rather than down from the sky.",
+    ),
+    "the_cordon": Lore(
+        title: "Why the wire holds",
+        text: "The wire does not hold. It has never held. What holds is that most people who go past it do not come back, and the ones who do come back are worse company than they were.",
+    ),
+    "bolts": Lore(
+        title: "On bolts",
+        text: "A bolt costs five rubles and a bolt has saved every stalker in this bar at least once. Men who are too proud to throw them are a category of person the Zone deals with quickly and without comment.",
+    ),
+    "the_hatch": Lore(
+        title: "Under the camp",
+        text: "There was a bunker under the camp before there was a camp. The man who dug it out kept a log in a careful hand right up until the last page, which is not careful at all.",
+    ),
+    "whirligigs": Lore(
+        title: "Reading a whirligig",
+        text: "The grass leans in. That is the whole trick, and it is enough, and men still walk into them every season because grass leaning is a small thing to notice when you are tired.",
+    ),
+    "burners": Lore(
+        title: "Reading a burner",
+        text: "You will feel it before you see it, and by then you are close enough that turning around is the wrong move. Go sideways. Always sideways.",
+    ),
+    "electros": Lore(
+        title: "Reading an electro",
+        text: "Crackle and a smell like a struck match. They kill electronics first and you second, which means your detector goes quiet at exactly the moment you need it loudest.",
+    ),
+    "acid": Lore(
+        title: "Reading the punch",
+        text: "It sits in the low ground and it looks like standing water because it is standing water, mostly. What is in the rest of it will take your boots off with your feet still in them.",
+    ),
+    "rifts": Lore(
+        title: "Reading nothing at all",
+        text: "The space-time ones have no tell. None. Anyone who says they can read one is selling something, and the thing they are selling will get you put somewhere you did not agree to be.",
+    ),
+    "artifacts": Lore(
+        title: "What an artifact is",
+        text: "Nobody knows. The Ecologists have a word for it that is six syllables long and means nobody knows. What is certain is that it will make you stronger and it will count against you the whole time you carry it.",
+    ),
+    "the_price": Lore(
+        title: "The carrying cost",
+        text: "Every artifact is a loan. The interest is paid in rads and the Zone does not accept late payment, only early death.",
+    ),
+    "emissions": Lore(
+        title: "Before an emission",
+        text: "An hour, if you are lucky and paying attention. The dogs go quiet first. If you are counting on the sky to tell you, you have already left it too late.",
+    ),
+    "duty": Lore(
+        title: "On Duty",
+        text: "They believe the Zone should be contained, and they are not wrong, and they will shoot you for being on the wrong side of a line they drew last Tuesday.",
+    ),
+    "freedom": Lore(
+        title: "On Freedom",
+        text: "They believe the Zone should be open to everyone. They have never explained what everyone is supposed to do once they get here, and they get very tired of being asked.",
+    ),
+    "bandits": Lore(
+        title: "On the Junkyard",
+        text: "There is no ideology in the Junkyard, which some stalkers find restful. They will take your kit and leave you your boots, on the theory that a man walking out is a man who might come back with more kit.",
+    ),
+    "ecologists": Lore(
+        title: "On the Lab",
+        text: "They came to measure it. Ten years of measurements and the graphs still do not close, and the ones who have been here longest have stopped talking about going home.",
+    ),
+    "monolith": Lore(
+        title: "On the Monolith",
+        text: "They are not a faction. They are what the centre does to people who listen to it long enough, and every one of them was somebody's friend on the way in.",
+    ),
+    "the_radar": Lore(
+        title: "The antenna",
+        text: "It transmits. That much is measurable. What it transmits is a question that has cost three expeditions, and the third one is still technically out there.",
+    ),
+    "the_room": Lore(
+        title: "What the Room is for",
+        text: "It grants wishes. Not the one you say out loud - the one underneath, the one you have been carrying since before you could name it. This is why the men who get there and ask for money are the lucky ones.",
+    ),
+    "the_walk_out": Lore(
+        title: "Going home",
+        text: "Every stalker means to do one more run. The ones who actually leave do it on an ordinary morning, without telling anybody, and are never mentioned again except as proof that it can be done.",
+    ),
+}

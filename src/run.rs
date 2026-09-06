@@ -150,6 +150,8 @@ pub(crate) struct RunState {
     pub discovered: HashSet<String>,
     /// Enemy ids killed, for kill jobs.
     pub kills: HashSet<String>,
+    /// Lore entries turned up this run.
+    pub lore: HashSet<String>,
     pub quests_taken: HashSet<String>,
     pub quests_done: HashSet<String>,
     /// Set once, when the run ends: how it ended, and which ending if it was the Room.
@@ -197,6 +199,7 @@ impl RunState {
             gate_rolled: HashSet::new(),
             discovered: HashSet::new(),
             kills: HashSet::new(),
+            lore: HashSet::new(),
             quests_taken: HashSet::new(),
             quests_done: HashSet::new(),
             death: None,

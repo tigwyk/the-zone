@@ -143,7 +143,7 @@ pub(crate) fn bank(
         let now = meta.rep.get(faction).copied().unwrap_or(0);
         meta.rep.insert(faction.clone(), (now + carried).clamp(-100, 100));
     }
-    meta.lore.extend(run.flags.iter().cloned());
+    meta.lore.extend(run.lore.iter().cloned());
 
     // `ponytail:` GDD §4 unlocks the Ecologist at the Lab and the Bandit by dying to
     // bandits. Neither exists yet, so the nearest thing that does stands in.
@@ -295,7 +295,7 @@ mod tests {
         run.rep.insert("loners".into(), 80);
         run.rep.insert("duty".into(), -40);
         run.minutes = 5 * 1440;
-        run.flags.insert("read_the_log".into());
+        run.lore.insert("read_the_log".into());
 
         bank(&mut meta, &run, &dir, "Radiation.", "You should have turned back.");
         assert_eq!(meta.memorial.len(), 1);

@@ -1,17 +1,79 @@
+// Forty items and twelve artifacts (GDD §12). Artifacts shift one attribute and
+// charge rads by the hour for the privilege (GDD §6); everything else is gear.
 {
-    "medkit": Item(name: "Medkit", base: 250, kind: Heal(25)),
+    // ---- medical (8) ----
     "bandage": Item(name: "Bandage", base: 60, kind: Heal(8)),
+    "medkit": Item(name: "Medkit", base: 250, kind: Heal(25)),
+    "army_medkit": Item(name: "Army Medkit", base: 600, kind: Heal(50)),
+    "tourniquet": Item(name: "Tourniquet", base: 120, kind: Heal(14)),
+    "stimulant": Item(name: "Stimulant", base: 350, kind: Heal(30)),
     "antirad": Item(name: "Antirad", base: 300, kind: Antirad(150)),
+    "radioprotectant": Item(name: "Radioprotectant", base: 550, kind: Antirad(300)),
+    "antidote": Item(name: "Antidote", base: 200, kind: Antirad(80)),
+
+    // ---- food and drink (6) ----
     "bread": Item(name: "Stale Loaf", base: 40, kind: Heal(4)),
     "tinned_meat": Item(name: "Tinned Meat", base: 55, kind: Heal(6)),
+    "sausage": Item(name: "Dry Sausage", base: 70, kind: Heal(7)),
     "vodka": Item(name: "Vodka", base: 70, kind: Heal(5)),
-    "bolt": Item(name: "Bolt", base: 5, kind: Misc),
-    "flashlight": Item(name: "Flashlight", base: 200, kind: Light),
+    "tea": Item(name: "Flask of Tea", base: 45, kind: Heal(5)),
+    "energy_bar": Item(name: "Ration Bar", base: 90, kind: Heal(9)),
+
+    // ---- weapons (9) ----
     "knife": Item(name: "Hunting Knife", base: 150, kind: Weapon(dice: (1, 8), skill: Melee)),
+    "machete": Item(name: "Machete", base: 320, kind: Weapon(dice: (2, 6), skill: Melee)),
+    "axe": Item(name: "Fire Axe", base: 480, kind: Weapon(dice: (2, 8), skill: Melee)),
     "pistol": Item(name: "PMm Pistol", base: 900, kind: Weapon(dice: (2, 6), skill: SmallGuns)),
+    "revolver": Item(name: "Heavy Revolver", base: 1600, kind: Weapon(dice: (3, 6), skill: SmallGuns)),
+    "sawn_off": Item(name: "Sawn-off", base: 700, kind: Weapon(dice: (3, 4), skill: SmallGuns)),
+    "shotgun": Item(name: "Pump Shotgun", base: 1900, kind: Weapon(dice: (3, 8), skill: SmallGuns)),
     "rifle": Item(name: "Abakan Rifle", base: 2600, kind: Weapon(dice: (3, 6), skill: SmallGuns)),
+    "sniper": Item(name: "Marksman Rifle", base: 5200, kind: Weapon(dice: (4, 8), skill: SmallGuns)),
+
+    // ---- armour (6) ----
     "jacket": Item(name: "Leather Jacket", base: 400, kind: Armor(2)),
+    "trench_coat": Item(name: "Oiled Trench Coat", base: 750, kind: Armor(3)),
     "vest": Item(name: "Stalker Vest", base: 1400, kind: Armor(5)),
-    "gravi": Item(name: "Gravi", base: 3000, kind: Artifact(attr: 0, bonus: 1, rads: 4)),
+    "duty_armour": Item(name: "Duty Body Armour", base: 3200, kind: Armor(7)),
+    "seva_suit": Item(name: "Sealed Suit", base: 6000, kind: Armor(9)),
+    "exo_frame": Item(name: "Exo Frame", base: 12000, kind: Armor(12)),
+
+    // ---- light (2) ----
+    "flashlight": Item(name: "Flashlight", base: 200, kind: Light),
+    "headlamp": Item(name: "Headlamp", base: 420, kind: Light),
+
+    // ---- tools and trophies (9) ----
+    "bolt": Item(name: "Bolt", base: 5, kind: Misc),
+    "detector": Item(name: "Anomaly Detector", base: 1100, kind: Misc),
+    "lockpicks": Item(name: "Lockpicks", base: 260, kind: Misc),
+    "toolkit": Item(name: "Repair Toolkit", base: 900, kind: Misc),
+    "documents": Item(name: "Sealed Documents", base: 1500, kind: Misc),
     "flesh_eye": Item(name: "Flesh Eye", base: 400, kind: Misc),
+    "dog_tail": Item(name: "Blind Dog Tail", base: 180, kind: Misc),
+    "boar_tusk": Item(name: "Boar Tusk", base: 300, kind: Misc),
+    "tentacle": Item(name: "Bloodsucker Tentacle", base: 1800, kind: Misc),
+
+    // ---- deep trophies (2), which finishes forty ----
+    "controller_brain": Item(name: "Controller Brain", base: 2600, kind: Misc),
+    "giant_heart": Item(name: "Pseudogiant Heart", base: 5000, kind: Misc),
+
+    // ---- artifacts (12): attr 0 STR, 1 PER, 2 END, 3 CHA, 4 INT, 5 AGI, 6 LCK ----
+    // Gravi family, out of the whirligigs.
+    "gravi": Item(name: "Gravi", base: 3000, kind: Artifact(attr: 0, bonus: 1, rads: 4)),
+    "moonlight": Item(name: "Moonlight", base: 7500, kind: Artifact(attr: 0, bonus: 2, rads: 9)),
+    // Fireball family, out of the burners.
+    "fireball": Item(name: "Fireball", base: 3400, kind: Artifact(attr: 2, bonus: 1, rads: 5)),
+    "droplet": Item(name: "Droplet", base: 8200, kind: Artifact(attr: 2, bonus: 2, rads: 10)),
+    // Flash family, out of the electros.
+    "flash": Item(name: "Flash", base: 3200, kind: Artifact(attr: 5, bonus: 1, rads: 4)),
+    "sparkler": Item(name: "Sparkler", base: 7800, kind: Artifact(attr: 5, bonus: 2, rads: 9)),
+    // Slime family, out of the acid. It costs less than it gives back.
+    "slime": Item(name: "Slime", base: 2400, kind: Artifact(attr: 2, bonus: 1, rads: 2)),
+    "soul": Item(name: "Soul", base: 6400, kind: Artifact(attr: 2, bonus: 2, rads: 6)),
+    // Compass family, out of the space-time rifts.
+    "compass": Item(name: "Compass", base: 4200, kind: Artifact(attr: 1, bonus: 1, rads: 6)),
+    "night_star": Item(name: "Night Star", base: 9600, kind: Artifact(attr: 1, bonus: 2, rads: 12)),
+    // The two nobody has a family name for.
+    "crystal_thorn": Item(name: "Crystal Thorn", base: 3800, kind: Artifact(attr: 6, bonus: 1, rads: 3)),
+    "mothers_beads": Item(name: "Mother's Beads", base: 11000, kind: Artifact(attr: 6, bonus: 2, rads: 14)),
 }

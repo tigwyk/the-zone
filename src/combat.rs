@@ -5,7 +5,7 @@ use bevy::prelude::*;
 
 use crate::area::{draw_art, EnemyData, ItemKind, ZoneData};
 use crate::render::{TileGrid, PALETTE};
-use crate::run::{check, check_skill, Outcome, Rng, RunState, Skill, AGI};
+use crate::run::{check, check_skill, Outcome, Rng, RunState, Skill, AGI, INT, PER};
 use crate::screens::{draw_chrome, draw_message};
 use crate::sim::{attr, carrying_light, is_night, Fields, GameClock, NIGHT_PENALTY};
 
@@ -90,10 +90,11 @@ pub(crate) fn turn_ap(run: &RunState, zone: &ZoneData) -> i32 {
 pub(crate) fn start(
     enemy_id: &str,
     combat: &mut Combat,
-    run: &RunState,
+    run: &mut RunState,
     zone: &ZoneData,
+    rng: &mut Rng,
 ) -> String {
-    let enemy = &zone.enemies[enemy_id];
+    let enemy = zone.enemies[enemy_id].clone();
     *combat = Combat {
         active: true,
         enemy: enemy_id.to_string(),
@@ -102,7 +103,19 @@ pub(crate) fn start(
         ap: turn_ap(run, zone),
         sel: 0,
     };
-    format!("A {} comes at you out of the ground.", enemy.name)
+
+    // GDD §8: a bloodsucker is not there until it is. Spot it or it opens on you,
+    // already inside your guard.
+    if enemy.ambush {
+        let per = attr(run, zone, PER) * 10;
+        if !matches!(check(per, 0, rng), Outcome::Success | Outcome::CritSuccess) {
+            combat.band = Band::Melee;
+            let opener = enemy_turn(&enemy, combat, run, zone, rng);
+            return format!("The air comes apart and something is on you. {opener}");
+        }
+        return format!("You catch the shimmer a moment early. A {}.", enemy.name);
+    }
+    format!("A {} comes at you.", enemy.name)
 }
 
 // ---- what the player can do right now ----
@@ -193,6 +206,20 @@ pub(crate) fn act(
     rng: &mut Rng,
 ) -> String {
     let enemy = zone.enemies[&combat.enemy].clone();
+
+    // GDD §8: a controller takes the turn off you unless you hold onto it.
+    if enemy.mind {
+        let will = attr(run, zone, INT) * 10;
+        if !matches!(check(will, 0, rng), Outcome::Success | Outcome::CritSuccess) {
+            combat.ap -= AP_ATTACK;
+            let mut lost = format!("The {} is in your head. The moment goes.", enemy.name);
+            if let Some(theirs) = end_turn(combat, run, zone, rng) {
+                lost = format!("{lost} {theirs}");
+            }
+            return lost;
+        }
+    }
+
     let mut message = match verb {
         Verb::Attack | Verb::Aimed => attack(verb == Verb::Aimed, combat, run, zone, &enemy, rng),
         Verb::CloseIn => {
@@ -407,8 +434,10 @@ mod tests {
         let zone = load_zone(Path::new("assets/data"));
         let run = RunState::roll(0, &[0, 2, 3], &mut Rng::new(3));
         let mut combat = Combat::default();
-        start("flesh", &mut combat, &run, &zone);
-        (zone, run, Rng::new(4242), combat)
+        let mut rng = Rng::new(4242);
+        let mut run = run;
+        start("flesh", &mut combat, &mut run, &zone, &mut rng);
+        (zone, run, rng, combat)
     }
 
     #[test]
@@ -506,6 +535,49 @@ mod tests {
             run.items.iter().find(|(i, _)| *i == flesh.loot[0].0).unwrap().1,
             flesh.loot[0].1
         );
+    }
+
+    #[test]
+    fn a_bloodsucker_that_is_not_spotted_opens_the_fight_on_top_of_you() {
+        let (zone, mut run, mut rng, mut combat) = fixture();
+        assert!(zone.enemies["bloodsucker"].ambush);
+
+        // Blind to it: it is already at melee and has had its go.
+        run.attrs[PER] = 1;
+        let hp = run.hp;
+        let msg = start("bloodsucker", &mut combat, &mut run, &zone, &mut rng);
+        assert_eq!(combat.band, Band::Melee, "{msg}");
+        assert!(run.hp <= hp, "it did not wait to be introduced");
+
+        // Sharp enough to see it: the fight opens at range like any other.
+        run.attrs[PER] = 10;
+        let msg = start("bloodsucker", &mut combat, &mut run, &zone, &mut rng);
+        assert_eq!(combat.band, Band::Far, "{msg}");
+    }
+
+    #[test]
+    fn a_controller_takes_the_turn_off_a_weak_mind() {
+        let (zone, mut run, mut rng, mut combat) = fixture();
+        assert!(zone.enemies["controller"].mind);
+        let mut run2 = run.clone();
+        start("controller", &mut combat, &mut run2, &zone, &mut rng);
+        run = run2;
+        run.attrs[INT] = 1;
+        run.weapon = Some("pistol".into());
+        run.skills[Skill::SmallGuns.index()] = 100;
+
+        let mut lost = 0;
+        for _ in 0..10 {
+            combat.hp = 999; // it is not dying today; the point is whose turn it is
+            combat.ap = turn_ap(&run, &zone);
+            let before = combat.hp;
+            let msg = act(Verb::Attack, &mut combat, &mut run, &zone, &mut rng);
+            if msg.contains("in your head") {
+                lost += 1;
+                assert_eq!(combat.hp, before, "a lost action does no damage");
+            }
+        }
+        assert!(lost > 0, "a 10 INT-check should fail sometimes");
     }
 
     #[test]

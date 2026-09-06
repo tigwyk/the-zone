@@ -49,6 +49,15 @@ through `meta::bank`: the memorial takes the name, the days, the cause and the l
 thing that happened, a quarter of the standing carries forward, and the suspend file
 is deleted. F5 suspends and quits; starting again spends the file.
 
+**The content.** GDD §12's targets are met and the loader asserts them, so content
+cannot quietly drift below them: 30 areas (10 reached only through the art), 8 anomaly
+fields, 12 artifacts in five families, 42 items, 7 enemies, 4 vendors, 10 speaking NPCs,
+15 jobs plus the five-step main chain, 6 endings and 20 lore entries. The Zone runs from
+the camp out through the reeds and the farm to Freedom, the Junkyard, the dead town, the
+Lab and the antenna, with two routes to the Room. Three more tests keep it honest: every
+area is walkable from the start, and no lore, job board or enemy has been written with
+nowhere to appear.
+
 **The polish (M7).** Three synthesised cues - a tick for moving, two steps up for
 confirming, a thud when something hurts you - played by a system that reads the keyboard
 and the stalker's health directly, so nothing had to be plumbed through the game. A CRT
@@ -61,7 +70,7 @@ events is truncated visibly instead of silently falling off the grid.
 **The game tests itself.** `add_game` registers every resource, state and input system;
 `main` adds only the window, the renderer, the scanlines and the audio. So `cargo test`
 builds the same app headless on `MinimalPlugins`, presses keys into it and reads the
-`TileGrid` back as text. Fifty-seven tests green, fifteen of them whole play-throughs.
+`TileGrid` back as text. Sixty-seven tests green, eighteen of them whole play-throughs.
 Tests run on a temp `SaveDir` and never touch the player's own.
 
 Deliberate simplifications, documented in code:
@@ -71,14 +80,12 @@ Deliberate simplifications, documented in code:
   mix under it. The `wav` feature is on so the cues decode.
 - The scanlines are an overlay sprite, not a post-process shader. Curvature, bloom and
   chromatic aberration would need the real thing.
-- No main-quest chain. GDD §9 wants five jobs ending in a route to the centre; the route
-  is there, opened by standing, but the chain that should lead you to it is content.
 - The map is generated from `area::exits`, not a hand-drawn `map.area` scene, so it
   cannot hide a letter yet (GDD §5 wants one).
 - Quests settle themselves rather than needing a hand-in; escort and deliver need
   followers and NPC-to-NPC routes.
-- The Ecologist and Bandit unlock off the Room and dying of wounds, standing in for the
-  Lab and the bandits, which do not exist yet.
+- The Ecologist and Bandit still unlock off the Room and dying of wounds. The Lab and
+  the bandits exist now, so the GDD §4 triggers could be wired to them directly.
 - No `MainMenu`, and no new run without relaunching: an ending or a death ends the
   process.
 - No rep-gated post entry, no roving encounters, no cover, encumbrance or ammo.
@@ -87,10 +94,10 @@ Deliberate simplifications, documented in code:
 - `#!` color-override lines in `.area` files are still not implemented, and no art has
   needed one.
 
-**What is left is content, not code.** GDD §12 wants 30 areas, 8 anomaly fields, 12
-artifacts, 40 items, 6 enemies, 10 speaking NPCs, 15 jobs and 20 lore entries; there
-are 8, 1, 1, 15, 1, 2, 4 and 0. Every one of those is a row in a `.ron` file or an
-`.area` scene - the systems behind them are built and validated at load.
+**What is left.** The roadmap and the content targets are both done. What would come
+next is depth rather than count: the escort and deliver job shapes, a hand-drawn
+`map.area` that can hide a letter, rep-gated post entry, roving encounters, and cover
+and encumbrance so the rest of GDD §8's to-hit table has something to hang on.
 
 ---
 

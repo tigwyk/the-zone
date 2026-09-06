@@ -164,6 +164,8 @@ Zone(
 | `Scan`, `ThrowBolt`, `PushThrough`, `TakeArtifact` | M3 | anomaly field verbs |
 | `SetFlag(String)` | M3 | quest/secret flag |
 | `Memorial` | M6 | show the fallen |
+| `Lore(LoreId)` | M7 | turn up a lore entry; kept across runs |
+| `Give(ItemId, u32)` | M7 | put something in the pack, once per area per run |
 | `End(EndingId)` | M6 | end the run on that ending; nothing follows it |
 
 Items and vendors sit in the same file (SPEC §5.3 carves them out later):
@@ -235,6 +237,7 @@ world. Beside it:
 | `quests.ron` | `{ id: Quest(name, faction, text, goal, rubles, rep) }` |
 | `factions.ron` | `{ id: Faction(name, rivals) }` |
 | `endings.ron` | `{ id: Ending(name, literal, corrupted) }` |
+| `lore.ron` | `{ id: Lore(title, text) }` |
 
 Anomalies stay inline in the area that has one; backgrounds stay as consts in
 `run.rs`; dialogue nests inside its NPC. Split those out when they outgrow a screen,
@@ -248,7 +251,17 @@ out of the run by those same requirements — there is no bespoke wish screen. W
 own text in brackets, GDD-style; an unmet line still renders, greyed, and refuses.
 
 A quest `goal` is `Have(ItemId)`, `Reach(AreaId)` or `Kill(EnemyId)`. Goals are
-checked after every action and settle themselves — there is no hand-in step yet.
+checked after every action and settle themselves — there is no hand-in step yet. A
+quest may name `requires: Some(QuestId)`, which keeps it off the board until that one
+is settled; that is all a quest chain is.
+
+An enemy may set `ambush` (unseen until it strikes: a PER check, or it opens on you at
+melee) or `mind` (a will check each turn, or the action is lost).
+
+**Content integrity is tested, not hoped for.** `area.rs` asserts the GDD §12 counts,
+that every area can be walked to from the start, and that no lore, job board or enemy
+has been written with nowhere to appear. Adding content that nothing reaches fails the
+build.
 
 ## 6. Input contract
 

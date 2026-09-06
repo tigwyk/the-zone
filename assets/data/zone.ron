@@ -1,15 +1,17 @@
 // The world: where you can stand and what you can do there. Items, vendors,
-// enemies, NPCs, quests and factions live in their own files (SPEC §5.3).
+// enemies, NPCs, quests, factions, endings and lore live in their own files
+// (SPEC §5.3). Thirty areas, ten of them reached only through the art.
 Zone(
     start: "camp",
     areas: {
+        // ---- the edge: camp, bar, road ----
         "camp": Area(
             name: "Base Camp",
             art: "camp",
             shelter: true,
             menu: [
                 ("Travel", Travel("road")),
-                ("Trade", Trade("trader")),
+                ("Talk to Sidorovich", Talk("sidorovich")),
                 ("The bar", Travel("bar")),
                 ("Rest", Rest),
                 ("The memorial", Memorial),
@@ -24,14 +26,13 @@ Zone(
             shelter: true,
             menu: [
                 ("Talk to Grisha", Talk("grisha")),
+                ("See the doctor", Talk("yerin")),
                 ("Buy a drink", Trade("barkeep")),
-                ("See the doctor", Trade("doctor")),
                 ("Job board", Jobs("loners")),
                 ("Outside", Travel("camp")),
             ],
             secrets: {
-                'K': Secret(action: Say("The keg is empty. Someone has been at it from behind."),
-                            gate: Some(Check(StalkerLore, -20))),
+                'K': Secret(action: Lore("bolts"), gate: Some(Check(StalkerLore, -20))),
             },
         ),
         "hatch": Area(
@@ -40,7 +41,8 @@ Zone(
             shelter: true,
             menu: [
                 ("Read the log", SetFlag("read_the_log")),
-                ("Search", Say("Dust, a dead man's kit, and nothing worth carrying.")),
+                ("The last page", Lore("the_hatch")),
+                ("Take the kit", Give("lockpicks", 1)),
                 ("Return", Travel("camp")),
             ],
             secrets: {},
@@ -50,14 +52,72 @@ Zone(
             art: "road",
             shelter: false,
             menu: [
-                ("Travel", Travel("camp")),
+                ("Back to the camp", Travel("camp")),
                 ("Cut toward the field", Travel("field")),
                 ("North, to the checkpoint", Travel("duty_post")),
-                ("Look", Say("The road runs east, toward the wastes.")),
-                ("Search", Say("You find a spent cartridge.")),
+                ("South, into the reeds", Travel("swamp")),
+                ("Read the ground", Lore("whirligigs")),
             ],
             secrets: {},
         ),
+
+        // ---- the outer ring ----
+        "swamp": Area(
+            name: "The Reed Flats",
+            art: "swamp",
+            shelter: false,
+            encounter: Some("blind_dog"),
+            menu: [
+                ("Back to the road", Travel("road")),
+                ("The farm track", Travel("farm")),
+                ("Wade east", Travel("acid_pools")),
+                ("South, to the tents", Travel("freedom_camp")),
+                ("Look", Say("The water is warmer than the air. Nothing about that is good.")),
+            ],
+            secrets: {
+                'P': Secret(action: Travel("pipes"), gate: Some(Check(StalkerLore, -10))),
+            },
+        ),
+        "pipes": Area(
+            name: "The Storm Drain",
+            art: "pipes",
+            shelter: true,
+            encounter: Some("bloodsucker"),
+            menu: [
+                ("Search the kit", Give("seva_suit", 1)),
+                ("Look", Lore("the_cordon")),
+                ("Back into the light", Travel("swamp")),
+            ],
+            secrets: {},
+        ),
+        "farm": Area(
+            name: "The Farmstead",
+            art: "farm",
+            shelter: true,
+            encounter: Some("boar"),
+            menu: [
+                ("Back to the reeds", Travel("swamp")),
+                ("The machine yard", Travel("burner_yard")),
+                ("Search the yard", Give("toolkit", 1)),
+                ("Look", Say("The ground has been turned over, and not by a plough.")),
+            ],
+            secrets: {
+                'C': Secret(action: Travel("cellar"), gate: Some(Check(StalkerLore, 0))),
+            },
+        ),
+        "cellar": Area(
+            name: "The Farm Cellar",
+            art: "cellar",
+            shelter: true,
+            menu: [
+                ("Read the ledger", Lore("the_first_day")),
+                ("Take what keeps", Give("energy_bar", 3)),
+                ("Back up the steps", Travel("farm")),
+            ],
+            secrets: {},
+        ),
+
+        // ---- Duty, north ----
         "duty_post": Area(
             name: "Checkpoint 4",
             art: "duty_post",
@@ -66,31 +126,61 @@ Zone(
                 ("Talk to Osip", Talk("osip")),
                 ("Quartermaster", Trade("gunrunner")),
                 ("Job board", Jobs("duty")),
-                ("Look", Say("Black and red patches. Nobody is smiling.")),
+                ("North, to the pylons", Travel("pylons")),
                 ("South, to the road", Travel("road")),
             ],
             secrets: {},
         ),
-        "room": Area(
-            name: "The Room",
-            art: "room",
+
+        // ---- Freedom and the Junkyard, south ----
+        "freedom_camp": Area(
+            name: "The Freedom Camp",
+            art: "freedom_camp",
             shelter: true,
             menu: [
-                ("Step into the light", Talk("room")),
-                ("Turn back up the tunnel", Travel("quarry")),
+                ("Talk to Kolya", Talk("kolya")),
+                ("Job board", Jobs("freedom")),
+                ("The junkyard road", Travel("junkyard")),
+                ("The rail tunnel", Travel("arc_tunnel")),
+                ("Back to the reeds", Travel("swamp")),
             ],
             secrets: {},
         ),
+        "junkyard": Area(
+            name: "The Junkyard",
+            art: "junkyard",
+            shelter: false,
+            encounter: Some("bandit"),
+            menu: [
+                ("Talk to Kuzma", Talk("kuzma")),
+                ("Back to the tents", Travel("freedom_camp")),
+                ("The dead town road", Travel("dead_town")),
+                ("Look", Say("Everything here ended up here. Cars, kit, men.")),
+            ],
+            secrets: {
+                'D': Secret(action: Travel("bandit_den"), gate: Some(Check(Lockpick, -10))),
+            },
+        ),
+        "bandit_den": Area(
+            name: "The Container",
+            art: "bandit_den",
+            shelter: true,
+            menu: [
+                ("Go through the crates", Give("revolver", 1)),
+                ("Take the cash on the table", Give("crystal_thorn", 1)),
+                ("Out, before they come back", Travel("junkyard")),
+            ],
+            secrets: {},
+        ),
+
+        // ---- the anomaly fields ----
         "field": Area(
             name: "The Whirligig Field",
             art: "field",
             shelter: false,
             anomaly: Some(Anomaly(
-                name: "Whirligig",
-                danger: 55,
-                dice: (6, 6),
-                artifact: "gravi",
-                beyond: "quarry",
+                name: "Whirligig", danger: 55, dice: (6, 6),
+                artifact: "gravi", beyond: "quarry",
             )),
             menu: [
                 ("Scan", Scan),
@@ -103,6 +193,137 @@ Zone(
                 'G': Secret(action: TakeArtifact, gate: Some(Check(StalkerLore, -10))),
             },
         ),
+        "burner_yard": Area(
+            name: "The Machine Yard",
+            art: "burner_yard",
+            shelter: false,
+            anomaly: Some(Anomaly(
+                name: "Burner", danger: 45, dice: (4, 6),
+                artifact: "fireball", beyond: "steam_plant",
+            )),
+            menu: [
+                ("Scan", Scan),
+                ("Throw Bolt", ThrowBolt),
+                ("Push Through", PushThrough),
+                ("Take Artifact", TakeArtifact),
+                ("Back to the farm", Travel("farm")),
+            ],
+            secrets: {
+                'H': Secret(action: Lore("burners"), gate: Some(Check(StalkerLore, 0))),
+            },
+        ),
+        "steam_plant": Area(
+            name: "The Boiler Hall",
+            art: "steam_plant",
+            shelter: true,
+            anomaly: Some(Anomaly(
+                name: "Burner", danger: 65, dice: (5, 6),
+                artifact: "droplet", beyond: "radar",
+            )),
+            menu: [
+                ("Scan", Scan),
+                ("Throw Bolt", ThrowBolt),
+                ("Push Through", PushThrough),
+                ("Take Artifact", TakeArtifact),
+                ("Back to the yard", Travel("burner_yard")),
+            ],
+            secrets: {
+                'W': Secret(action: Travel("deep_whirl"), gate: Some(Check(StalkerLore, -25))),
+            },
+        ),
+        "pylons": Area(
+            name: "The Pylon Line",
+            art: "pylons",
+            shelter: false,
+            anomaly: Some(Anomaly(
+                name: "Electro", danger: 50, dice: (5, 6),
+                artifact: "flash", beyond: "dead_town",
+            )),
+            menu: [
+                ("Scan", Scan),
+                ("Throw Bolt", ThrowBolt),
+                ("Push Through", PushThrough),
+                ("Take Artifact", TakeArtifact),
+                ("Back to the checkpoint", Travel("duty_post")),
+            ],
+            secrets: {
+                'R': Secret(action: Travel("rift"), gate: Some(Check(StalkerLore, -30))),
+            },
+        ),
+        "arc_tunnel": Area(
+            name: "The Rail Tunnel",
+            art: "arc_tunnel",
+            shelter: true,
+            anomaly: Some(Anomaly(
+                name: "Electro", danger: 70, dice: (6, 6),
+                artifact: "sparkler", beyond: "lab_gate",
+            )),
+            menu: [
+                ("Scan", Scan),
+                ("Throw Bolt", ThrowBolt),
+                ("Push Through", PushThrough),
+                ("Take Artifact", TakeArtifact),
+                ("Back to the tents", Travel("freedom_camp")),
+            ],
+            secrets: {
+                'E': Secret(action: Lore("electros"), gate: Some(Check(StalkerLore, -10))),
+            },
+        ),
+        "acid_pools": Area(
+            name: "The Low Ground",
+            art: "acid_pools",
+            shelter: false,
+            anomaly: Some(Anomaly(
+                name: "Fruit Punch", danger: 40, dice: (3, 6),
+                artifact: "slime", beyond: "freedom_camp",
+            )),
+            menu: [
+                ("Scan", Scan),
+                ("Throw Bolt", ThrowBolt),
+                ("Push Through", PushThrough),
+                ("Take Artifact", TakeArtifact),
+                ("Back to the reeds", Travel("swamp")),
+            ],
+            secrets: {
+                'A': Secret(action: Lore("acid"), gate: Some(Check(StalkerLore, 0))),
+            },
+        ),
+        "rift": Area(
+            name: "The Rift",
+            art: "rift",
+            shelter: false,
+            anomaly: Some(Anomaly(
+                name: "space-time tear", danger: 80, dice: (2, 6),
+                artifact: "compass", beyond: "radar",
+            )),
+            menu: [
+                ("Scan", Scan),
+                ("Throw Bolt", ThrowBolt),
+                ("Push Through", PushThrough),
+                ("Take Artifact", TakeArtifact),
+                ("Back, if that is back", Travel("pylons")),
+            ],
+            secrets: {},
+        ),
+        "deep_whirl": Area(
+            name: "The Standing Yard",
+            art: "deep_whirl",
+            shelter: false,
+            anomaly: Some(Anomaly(
+                name: "Whirligig", danger: 75, dice: (8, 6),
+                artifact: "moonlight", beyond: "approach",
+            )),
+            menu: [
+                ("Scan", Scan),
+                ("Throw Bolt", ThrowBolt),
+                ("Push Through", PushThrough),
+                ("Take Artifact", TakeArtifact),
+                ("Back to the boilers", Travel("steam_plant")),
+            ],
+            secrets: {},
+        ),
+
+        // ---- the quarry ----
         "quarry": Area(
             name: "The Quarry Rim",
             art: "quarry",
@@ -115,12 +336,128 @@ Zone(
                 ("Back through the field", Travel("field")),
             ],
             secrets: {
-                'S': Secret(action: Say("The log was right. The crate holds two medkits and a bolt tin."),
-                            gate: Some(Flag("read_the_log"))),
-                // GDD 9: the route to the centre opens for whoever stands highest
+                'S': Secret(action: Give("army_medkit", 2), gate: Some(Flag("read_the_log"))),
+                // GDD §9: the route to the centre opens for whoever stands highest
                 // with somebody. It does not care which somebody.
                 'T': Secret(action: Travel("room"), gate: Some(AnyRep(50))),
             },
+        ),
+
+        // ---- the Lab ----
+        "lab_gate": Area(
+            name: "The Lab Gate",
+            art: "lab_gate",
+            shelter: true,
+            menu: [
+                ("Present yourself", Travel("lab")),
+                ("Read the board", Lore("ecologists")),
+                ("Back to the dead town", Travel("dead_town")),
+            ],
+            secrets: {},
+        ),
+        "lab": Area(
+            name: "The Lab",
+            art: "lab",
+            shelter: true,
+            menu: [
+                ("Talk to Ilyin", Talk("professor")),
+                ("Job board", Jobs("ecologists")),
+                ("Read the pinned sheets", Lore("the_price")),
+                ("Back to the gate", Travel("lab_gate")),
+            ],
+            secrets: {
+                'V': Secret(action: Travel("lab_vault"), gate: Some(Rep("ecologists", 25))),
+            },
+        ),
+        "lab_vault": Area(
+            name: "The Records Vault",
+            art: "lab_vault",
+            shelter: true,
+            menu: [
+                ("Open the sealed crate", Give("documents", 1)),
+                ("Go through the drawers", Give("soul", 1)),
+                ("Back up to the floor", Travel("lab")),
+            ],
+            secrets: {},
+        ),
+
+        // ---- the dead town ----
+        "dead_town": Area(
+            name: "The Dead Town",
+            art: "dead_town",
+            shelter: false,
+            menu: [
+                ("Talk to the hermit", Talk("hermit")),
+                ("The lab gate", Travel("lab_gate")),
+                ("The antenna road", Travel("radar")),
+                ("Back to the junkyard", Travel("junkyard")),
+                ("Look", Say("Every window on the street is standing open.")),
+            ],
+            secrets: {
+                'C': Secret(action: Travel("church"), gate: Some(Check(StalkerLore, -15))),
+            },
+        ),
+        "church": Area(
+            name: "The Church",
+            art: "church",
+            shelter: true,
+            menu: [
+                ("Go through the bundle", Give("night_star", 1)),
+                ("Sit down a moment", Lore("the_walk_out")),
+                ("Back to the street", Travel("dead_town")),
+            ],
+            secrets: {},
+        ),
+
+        // ---- the antenna and the way in ----
+        "radar": Area(
+            name: "The Antenna",
+            art: "radar",
+            shelter: false,
+            encounter: Some("controller"),
+            menu: [
+                ("Listen", Talk("voice")),
+                ("The approach", Travel("approach")),
+                ("Read the plate", Lore("the_radar")),
+                ("Back to the dead town", Travel("dead_town")),
+            ],
+            secrets: {
+                'B': Secret(action: Travel("bunker"), gate: Some(Check(Science, -10))),
+            },
+        ),
+        "bunker": Area(
+            name: "The Shelter",
+            art: "bunker",
+            shelter: true,
+            menu: [
+                ("Go through the supply", Give("radioprotectant", 2)),
+                ("Read the calendar", Lore("emissions")),
+                ("Take what is on the bunk", Give("mothers_beads", 1)),
+                ("Back up the ladder", Travel("radar")),
+            ],
+            secrets: {},
+        ),
+        "approach": Area(
+            name: "The Approach",
+            art: "approach",
+            shelter: false,
+            encounter: Some("pseudogiant"),
+            menu: [
+                ("Press on", Travel("room")),
+                ("Look at the prints", Lore("monolith")),
+                ("Back to the antenna", Travel("radar")),
+            ],
+            secrets: {},
+        ),
+        "room": Area(
+            name: "The Room",
+            art: "room",
+            shelter: true,
+            menu: [
+                ("Step into the light", Talk("room")),
+                ("Turn back up the tunnel", Travel("quarry")),
+            ],
+            secrets: {},
         ),
     },
 )

@@ -7,7 +7,7 @@ use serde::Deserialize;
 use crate::area::ZoneData;
 use crate::render::{TileGrid, PALETTE};
 use crate::run::RunState;
-use crate::screens::{draw_chrome, draw_message, hint, title, wrap};
+use crate::screens::{draw_chrome, draw_message, hint, more, title, window, wrap};
 use crate::sim::GameClock;
 
 const LIST_ROW: usize = 4;
@@ -32,6 +32,10 @@ pub(crate) struct QuestData {
     pub goal: Goal,
     pub rubles: u32,
     pub rep: i32,
+    /// The job that has to be settled first. This is what makes a chain a chain
+    /// (GDD §9: the main quest is five jobs that end with a route to the centre).
+    #[serde(default)]
+    pub requires: Option<String>,
 }
 
 /// Which board is open, and where the cursor is on it.
@@ -61,7 +65,10 @@ pub(crate) fn offered<'a>(zone: &'a ZoneData, run: &RunState, faction: &str) -> 
         .quests
         .iter()
         .filter(|(id, q)| {
-            q.faction == faction && !run.quests_taken.contains(*id) && !run.quests_done.contains(*id)
+            q.faction == faction
+                && !run.quests_taken.contains(*id)
+                && !run.quests_done.contains(*id)
+                && q.requires.as_ref().is_none_or(|r| run.quests_done.contains(r))
         })
         .map(|(id, _)| id.as_str())
         .collect();
@@ -115,26 +122,51 @@ pub(crate) fn settle(run: &mut RunState, zone: &ZoneData) -> String {
 
 // ---- the screens ----
 
-/// Shared list renderer: one job a row, name and pay.
-fn list(grid: &mut TileGrid, zone: &ZoneData, ids: &[&str], sel: usize, empty: &str) {
-    if ids.is_empty() {
+/// How many rows a job or lore list gets before it scrolls.
+const ROWS: usize = 12;
+
+/// Shared list renderer: a label a row, and the highlighted one explains itself
+/// underneath. Used for job boards and for the journal, which mixes jobs and lore.
+fn list(grid: &mut TileGrid, entries: &[(String, String)], sel: usize, empty: &str) {
+    if entries.is_empty() {
         grid.text(2, LIST_ROW, empty, PALETTE.desc, false);
         return;
     }
-    for (i, id) in ids.iter().enumerate() {
-        let quest = &zone.quests[*id];
+    let shown = window(sel, entries.len(), ROWS);
+    for (line_no, i) in shown.clone().enumerate() {
         let fg = if i == sel { PALETTE.menu_sel } else { PALETTE.menu };
-        grid.text(0, LIST_ROW + i, if i == sel { "> " } else { "  " }, fg, false);
-        let label = format!("{:<32}{:>6} RU   {}", quest.name, quest.rubles, quest.faction);
-        grid.text(2, LIST_ROW + i, &label, fg, false);
+        grid.text(0, LIST_ROW + line_no, if i == sel { "> " } else { "  " }, fg, false);
+        grid.text(2, LIST_ROW + line_no, &entries[i].0, fg, false);
     }
-    // The highlighted job explains itself underneath.
-    for (i, line) in wrap(&zone.quests[ids[sel.min(ids.len() - 1)]].text, 76)
-        .iter()
-        .enumerate()
-    {
-        grid.text(2, LIST_ROW + ids.len() + 2 + i, line, PALETTE.desc, false);
+    more(grid, LIST_ROW + ROWS, &shown, entries.len());
+
+    let text = &entries[sel.min(entries.len() - 1)].1;
+    for (i, line) in wrap(text, 76).iter().enumerate() {
+        grid.text(2, LIST_ROW + ROWS + 2 + i, line, PALETTE.desc, false);
     }
+}
+
+fn job_row(zone: &ZoneData, id: &str) -> (String, String) {
+    let quest = &zone.quests[id];
+    (
+        format!("{:<32}{:>6} RU   {}", quest.name, quest.rubles, quest.faction),
+        quest.text.clone(),
+    )
+}
+
+/// Everything the journal lists: the work you are carrying, then the things the Zone
+/// has told you. One list, so one cursor reads both.
+pub(crate) fn journal_entries(zone: &ZoneData, run: &RunState) -> Vec<(String, String)> {
+    let mut entries: Vec<(String, String)> =
+        taken(zone, run).iter().map(|id| job_row(zone, id)).collect();
+    let mut lore: Vec<&String> = run.lore.iter().collect();
+    lore.sort_unstable();
+    for id in lore {
+        if let Some(entry) = zone.lore.get(id) {
+            entries.push((format!("[lore] {}", entry.title), entry.text.clone()));
+        }
+    }
+    entries
 }
 
 pub(crate) fn build_board_grid(
@@ -160,7 +192,8 @@ pub(crate) fn build_board_grid(
     );
 
     let ids = offered(zone, run, &board.faction);
-    list(grid, zone, &ids, board.sel, "Nothing on the board today.");
+    let entries: Vec<(String, String)> = ids.iter().map(|id| job_row(zone, id)).collect();
+    list(grid, &entries, board.sel, "Nothing on the board today.");
     draw_message(grid, message);
     hint(grid, "Up/Down choose   Enter take the job   Esc leave the board");
     draw_chrome(grid, run, clock);
@@ -177,8 +210,8 @@ pub(crate) fn build_journal_grid(
     grid.clear();
     title(grid, "JOURNAL");
 
-    let ids = taken(zone, run);
-    list(grid, zone, &ids, sel, "You are not carrying anyone's work.");
+    let entries = journal_entries(zone, run);
+    list(grid, &entries, sel, "Nothing carried, and nothing learned yet.");
 
     // Standing, which is the other half of what a journal is for.
     let mut y = 2;
@@ -195,10 +228,12 @@ pub(crate) fn build_journal_grid(
         );
         y += 1;
     }
-    if !run.quests_done.is_empty() {
-        let line = format!("{} job(s) settled", run.quests_done.len());
-        grid.text(crate::screens::PANEL_COL, y + 1, &line, PALETTE.desc, false);
-    }
+    let tally = format!(
+        "{} settled   {} lore",
+        run.quests_done.len(),
+        run.lore.len()
+    );
+    grid.text(crate::screens::PANEL_COL, y + 1, &tally, PALETTE.desc, false);
 
     draw_message(grid, message);
     hint(grid, "Up/Down read   Esc back");
@@ -258,6 +293,52 @@ mod tests {
         let purse = run.rubles;
         assert!(settle(&mut run, &zone).is_empty());
         assert_eq!(run.rubles, purse);
+    }
+
+    #[test]
+    fn a_chain_hands_out_one_link_at_a_time() {
+        let (zone, mut run) = fixture();
+        // The main chain is five jobs, and only the first is on the board.
+        let chain: Vec<&str> = {
+            let mut ids: Vec<&str> = zone
+                .quests
+                .iter()
+                .filter(|(_, q)| q.requires.is_some())
+                .map(|(id, _)| id.as_str())
+                .collect();
+            ids.sort_unstable();
+            ids
+        };
+        assert!(!chain.is_empty(), "there is a chain to walk");
+        for id in &chain {
+            let quest = &zone.quests[*id];
+            let needed = quest.requires.clone().unwrap();
+            assert!(
+                !offered(&zone, &run, &quest.faction).contains(id),
+                "{id} showed up before {needed} was done"
+            );
+            run.quests_done.insert(needed);
+            assert!(
+                offered(&zone, &run, &quest.faction).contains(id),
+                "{id} did not open once its prerequisite was settled"
+            );
+        }
+    }
+
+    #[test]
+    fn the_journal_carries_lore_alongside_the_work() {
+        let (zone, mut run) = fixture();
+        assert!(journal_entries(&zone, &run).is_empty());
+
+        run.quests_taken.insert("grishas_pot".into());
+        let id = zone.lore.keys().next().expect("there is lore").clone();
+        run.lore.insert(id.clone());
+
+        let entries = journal_entries(&zone, &run);
+        assert_eq!(entries.len(), 2);
+        assert!(entries[0].0.contains("An eye for the pot"));
+        assert!(entries[1].0.starts_with("[lore]"), "{:?}", entries[1].0);
+        assert_eq!(entries[1].1, zone.lore[&id].text);
     }
 
     #[test]

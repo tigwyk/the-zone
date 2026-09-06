@@ -56,6 +56,7 @@ pub(crate) enum Req {
     /// The Room's short list is built from the run (GDD §9): what you have, what you
     /// have killed, what you have done for people.
     Rubles(u32),
+    Carrying(String),
     Killed(String),
     QuestsDone(usize),
 }
@@ -67,6 +68,7 @@ impl Req {
             Req::Rep(faction, at_least) => run.rep_of(faction) >= *at_least,
             Req::Flag(flag) => run.flags.contains(flag),
             Req::Rubles(at_least) => run.rubles >= *at_least,
+            Req::Carrying(item) => run.items.iter().any(|(id, n)| id == item && *n > 0),
             Req::Killed(enemy) => run.kills.contains(enemy),
             Req::QuestsDone(at_least) => run.quests_done.len() >= *at_least,
         }

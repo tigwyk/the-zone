@@ -368,15 +368,27 @@ what they asked for three times in four.
 
 ## 12. Content targets for v1
 
-| Thing | Count |
-|---|---|
-| Areas | 30 (about 10 secret) |
-| Anomaly fields | 8 |
-| Artifacts | 12 |
-| Items (weapons, armor, meds, misc) | 40 |
-| Enemies | 6 |
-| Vendors | 4 |
-| NPCs with dialogue | 10 |
-| Jobs | 15 plus the 5-step main chain |
-| Endings | 6 |
-| Lore entries | 20 |
+All of these are met. The loader asserts them, so content cannot drift below the
+targets without failing the build.
+
+| Thing | Target | Built |
+|---|---|---|
+| Areas | 30 (about 10 secret) | 30, 10 of them reached only through the art |
+| Anomaly fields | 8 | 8 — two each of gravity, thermal and electric, one acid, one rift |
+| Artifacts | 12 | 12, in five families plus two nobody has named |
+| Items (weapons, armor, meds, misc) | 40 | 42 |
+| Enemies | 6 | 7 — bandit, blind dog, flesh, boar, bloodsucker, controller, pseudogiant |
+| Vendors | 4 | 4 |
+| NPCs with dialogue | 10 | 10 |
+| Jobs | 15 plus the 5-step main chain | 15 + 5 |
+| Endings | 6 | 6 |
+| Lore entries | 20 | 20 |
+
+**The shape of the map.** The camp and the bar sit on the edge, with the road running
+north to Duty's checkpoint and south into the reeds. The reeds open on the farm, the
+low ground and Freedom's camp; past Freedom lie the Junkyard and the dead town, and
+past the dead town the Lab gate and the antenna. The approach to the Room runs from the
+antenna, and a tunnel off the quarry rim gets there too for anyone who stands high
+enough with somebody. Ten areas — the hatch, the storm drain, the farm cellar, the
+bandit container, the Lab vault, the church, the shelter, the rift, the standing yard
+and the Room — have no menu entry anywhere and are reached only by reading the art.

@@ -68,7 +68,10 @@
             ),
             "artifacts": Node(
                 text: "Contained. Studied. Not sold to whoever walks in off the road.",
-                options: [Line(text: "Understood.", goto: Some("hello"))],
+                options: [
+                    Line(text: "And who decides that?", action: Some(Lore("duty")), goto: Some("hello")),
+                    Line(text: "Understood.", goto: Some("hello")),
+                ],
             ),
             "favour": Node(
                 text: "The board is yours, then. Take something off it before you go.",
@@ -76,6 +79,234 @@
                     Line(text: "Show me the board.", action: Some(Jobs("duty")), goto: None),
                     Line(text: "Another time.", goto: Some("hello")),
                 ],
+            ),
+        },
+    ),
+    "sidorovich": Npc(
+        name: "Sidorovich",
+        faction: "loners",
+        start: "hello",
+        nodes: {
+            "hello": Node(
+                text: "You are still standing. Good. Standing customers spend more than the other kind.",
+                options: [
+                    Line(text: "Show me the shelf.", action: Some(Trade("trader"))),
+                    Line(text: "What is worth carrying out?", goto: Some("artifacts")),
+                    Line(
+                        text: "[Barter 55] Your margins are theft.",
+                        req: Some(Skill(Barter, 55)),
+                        goto: Some("margins"),
+                    ),
+                    Line(text: "Nothing today.", goto: None),
+                ],
+            ),
+            "artifacts": Node(
+                text: "Artifacts. Always artifacts. Everything else you bring me is weight.",
+                options: [
+                    Line(text: "What are they, though?", action: Some(Lore("artifacts")), goto: Some("hello")),
+                    Line(text: "Understood.", goto: Some("hello")),
+                ],
+            ),
+            "margins": Node(
+                text: "Theft is when you take it. This is commerce, and commerce has a roof over it.",
+                options: [Line(text: "Fine.", goto: Some("hello"))],
+            ),
+        },
+    ),
+    "yerin": Npc(
+        name: "Doctor Yerin",
+        faction: "loners",
+        start: "hello",
+        nodes: {
+            "hello": Node(
+                text: "Sit down before you fall down. I can see the count on you from here.",
+                options: [
+                    Line(text: "What have you got?", action: Some(Trade("doctor"))),
+                    Line(text: "How bad is what I am carrying?", goto: Some("rads")),
+                    Line(text: "I am fine.", goto: None),
+                ],
+            ),
+            "rads": Node(
+                text: "Every one of them is a loan. You are not the first man to think he could outrun the interest.",
+                options: [
+                    Line(text: "Go on.", action: Some(Lore("the_price")), goto: Some("hello")),
+                    Line(text: "I will manage.", goto: Some("hello")),
+                ],
+            ),
+        },
+    ),
+    "kolya": Npc(
+        name: "Kolya",
+        faction: "freedom",
+        start: "hello",
+        nodes: {
+            "hello": Node(
+                text: "Duty told you we were animals down here, and here you are anyway. Sit. Have something.",
+                options: [
+                    Line(text: "What does Freedom actually want?", goto: Some("creed")),
+                    Line(text: "Anything on the board?", action: Some(Jobs("freedom"))),
+                    Line(
+                        text: "[Freedom 25] They say you go further in than anyone.",
+                        req: Some(Rep("freedom", 25)),
+                        goto: Some("deep"),
+                    ),
+                    Line(text: "Passing through.", goto: None),
+                ],
+            ),
+            "creed": Node(
+                text: "The Zone belongs to whoever walks it. That is the whole of it, whatever the black-and-reds tell you.",
+                options: [
+                    Line(text: "And after that?", action: Some(Lore("freedom")), goto: Some("hello")),
+                    Line(text: "Simple enough.", goto: Some("hello")),
+                ],
+            ),
+            "deep": Node(
+                text: "Further than is sensible. The rifts do not warn you. Nothing warns you.",
+                options: [
+                    Line(text: "How do you read one?", action: Some(Lore("rifts")), goto: Some("hello")),
+                ],
+            ),
+        },
+    ),
+    "kuzma": Npc(
+        name: "Kuzma",
+        faction: "bandits",
+        start: "hello",
+        nodes: {
+            "hello": Node(
+                text: "Look at this. A stalker walked in on his own legs, carrying things, and did not knock.",
+                options: [
+                    Line(
+                        text: "[Bandits 25] I am not a stranger here.",
+                        req: Some(Rep("bandits", 25)),
+                        goto: Some("known"),
+                    ),
+                    Line(
+                        text: "[Barter 60] There is a version of this where we both profit.",
+                        req: Some(Skill(Barter, 60)),
+                        goto: Some("deal"),
+                    ),
+                    Line(text: "What is this place?", goto: Some("junkyard")),
+                    Line(text: "Leave, slowly.", goto: None),
+                ],
+            ),
+            "junkyard": Node(
+                text: "This is where things end up. Cars, kit, men. Mostly it sorts itself.",
+                options: [
+                    Line(text: "Charming.", action: Some(Lore("bandits")), goto: Some("hello")),
+                ],
+            ),
+            "known": Node(
+                text: "So you are. Keep your hands where they are and we will keep being friendly.",
+                options: [Line(text: "Understood.", goto: Some("hello"))],
+            ),
+            "deal": Node(
+                text: "There he is. Talk like that and a man forgets he was going to rob you.",
+                options: [Line(text: "Let us keep it that way.", goto: Some("hello"))],
+            ),
+        },
+    ),
+    "professor": Npc(
+        name: "Professor Ilyin",
+        faction: "ecologists",
+        start: "hello",
+        nodes: {
+            "hello": Node(
+                text: "You are not scheduled. Nothing out here is scheduled. Come in before something follows you.",
+                options: [
+                    Line(text: "What is the Lab measuring?", goto: Some("measuring")),
+                    Line(text: "Anything you need fetched?", action: Some(Jobs("ecologists"))),
+                    Line(
+                        text: "[Science 45] Your graphs do not close, do they.",
+                        req: Some(Skill(Science, 45)),
+                        goto: Some("graphs"),
+                    ),
+                    Line(text: "Another time.", goto: None),
+                ],
+            ),
+            "measuring": Node(
+                text: "Everything. For ten years. The instruments are excellent and the conclusions are embarrassing.",
+                options: [
+                    Line(text: "Embarrassing how?", action: Some(Lore("ecologists")), goto: Some("hello")),
+                ],
+            ),
+            "graphs": Node(
+                text: "No. They do not. I would rather you had not been able to see that.",
+                options: [
+                    Line(text: "What is an artifact, really?", action: Some(Lore("artifacts")), goto: Some("hello")),
+                    Line(text: "I will keep it to myself.", goto: Some("hello")),
+                ],
+            ),
+        },
+    ),
+    "hermit": Npc(
+        name: "The Hermit",
+        faction: "mercs",
+        start: "hello",
+        nodes: {
+            "hello": Node(
+                text: "Do not stand in the doorway. Things come down that street and I would rather they came past than in.",
+                options: [
+                    Line(
+                        text: "[carrying vodka] I brought something.",
+                        req: Some(Carrying("vodka")),
+                        goto: Some("paid"),
+                    ),
+                    Line(text: "They say you have been to the centre.", goto: Some("centre")),
+                    Line(text: "Is anyone paying for anything?", action: Some(Jobs("mercs"))),
+                    Line(text: "What happened here?", goto: Some("town")),
+                    Line(text: "Nothing. Sorry.", goto: None),
+                ],
+            ),
+            "centre": Node(
+                text: "I have been close. Close is a different country from there, and I came back, which tells you what I am.",
+                options: [
+                    Line(text: "What is at the centre?", action: Some(Lore("the_room")), goto: Some("hello")),
+                    Line(text: "You came back, though.", action: Some(Lore("the_walk_out")), goto: Some("hello")),
+                ],
+            ),
+            "town": Node(
+                text: "It emptied. Not all at once, which was the bad part. People kept deciding to stay one more week.",
+                options: [
+                    Line(text: "And the first day?", action: Some(Lore("the_first_day")), goto: Some("hello")),
+                ],
+            ),
+            "paid": Node(
+                text: "Then sit. The road in runs under the antenna, and the antenna is the only thing out here that knows it.",
+                options: [
+                    Line(text: "Tell me about the antenna.", action: Some(Lore("the_radar")), goto: Some("hello")),
+                    Line(text: "That is what I needed.", goto: Some("hello")),
+                ],
+            ),
+        },
+    ),
+    "voice": Npc(
+        name: "A Voice Under the Antenna",
+        faction: "monolith",
+        start: "hello",
+        nodes: {
+            "hello": Node(
+                text: "It is not speaking to you. It has been speaking since before you got here and will go on after, and some of it happens to be in words.",
+                options: [
+                    Line(text: "Listen properly.", goto: Some("listen")),
+                    Line(
+                        text: "[Monolith 25] I have heard this before.",
+                        req: Some(Rep("monolith", 25)),
+                        goto: Some("known"),
+                    ),
+                    Line(text: "Put your hands over your ears and go.", goto: None),
+                ],
+            ),
+            "listen": Node(
+                text: "Under the hiss there is a shape, and the shape is a direction, and the direction is inward.",
+                options: [
+                    Line(text: "Who ends up following it?", action: Some(Lore("monolith")), goto: Some("hello")),
+                    Line(text: "That is enough of that.", goto: Some("hello")),
+                ],
+            ),
+            "known": Node(
+                text: "Then you know it is not asking. It never asks. It only keeps saying the same thing until it is yours.",
+                options: [Line(text: "Step back.", goto: Some("hello"))],
             ),
         },
     ),

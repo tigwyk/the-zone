@@ -13,6 +13,9 @@ const STATUS_ROW: usize = 28;
 const FOOTER_ROW: usize = 29;
 const HINT_ROW: usize = 25;
 const LIST_ROW: usize = 4;
+/// How many rows each long list gets before it starts scrolling.
+const PACK_ROWS: usize = 16;
+const MAP_ROWS: usize = 18;
 /// Full-width text sits here, clear of the preview column at 44.
 const BLURB_ROW: usize = 17;
 /// The right-hand column on the creation and inventory screens.
@@ -50,6 +53,26 @@ pub(crate) fn draw_chrome(grid: &mut TileGrid, run: &RunState, clock: &GameClock
 
 pub(crate) fn title(grid: &mut TileGrid, s: &str) {
     grid.text(0, 0, s, PALETTE.menu_sel, true);
+}
+
+/// The slice of a long list to draw so the cursor stays on screen. Thirty areas and
+/// forty items do not fit in twenty rows, and a list that runs off the grid is the
+/// same bug as a message that does.
+pub(crate) fn window(sel: usize, total: usize, rows: usize) -> std::ops::Range<usize> {
+    if total <= rows {
+        return 0..total;
+    }
+    let start = sel.saturating_sub(rows / 2).min(total - rows);
+    start..start + rows
+}
+
+/// Drawn at the end of a windowed list when there is more of it above or below.
+pub(crate) fn more(grid: &mut TileGrid, y: usize, shown: &std::ops::Range<usize>, total: usize) {
+    if total <= shown.len() {
+        return;
+    }
+    let line = format!("({}-{} of {total})", shown.start + 1, shown.end);
+    grid.text(2, y, &line, PALETTE.dim, false);
 }
 
 /// The message row (SPEC §4). A message is meant to fit in one line; when one has
@@ -178,7 +201,9 @@ pub(crate) fn build_inventory_grid(
     if run.items.is_empty() {
         grid.text(2, LIST_ROW, "Nothing carried.", PALETTE.desc, false);
     }
-    for (i, (id, n)) in run.items.iter().enumerate() {
+    let shown = window(sel, run.items.len(), PACK_ROWS);
+    for (line_no, i) in shown.clone().enumerate() {
+        let (id, n) = &run.items[i];
         let item = &zone.items[id];
         let slot = match (run.weapon.as_deref(), run.armor.as_deref()) {
             (Some(w), _) if w == id => " [wielded]",
@@ -186,14 +211,15 @@ pub(crate) fn build_inventory_grid(
             _ => "",
         };
         let label = format!("{:<20}{:>3}{}", item.name, n, slot);
-        row(grid, 0, LIST_ROW + i, i == sel, &label);
+        row(grid, 0, LIST_ROW + line_no, i == sel, &label);
     }
+    more(grid, LIST_ROW + PACK_ROWS, &shown, run.items.len());
 
     // What the artifacts are costing you, if anything.
     let per_hour = artifact_rads_per_hour(run, zone);
     if per_hour > 0 {
         let line = format!("Artifacts: +{per_hour} RAD every hour");
-        grid.text(2, LIST_ROW + run.items.len() + 1, &line, PALETTE.amber, false);
+        grid.text(2, LIST_ROW + PACK_ROWS + 1, &line, PALETTE.amber, false);
     }
 
     // Attributes and skills on the right — this is where creation choices show up.
@@ -443,7 +469,9 @@ pub(crate) fn build_map_grid(
 
     let known = known_areas(zone, run);
     let next_door = crate::area::exits(&zone.areas[here]);
-    for (i, id) in known.iter().enumerate() {
+    let shown = window(sel, known.len(), MAP_ROWS);
+    for (line_no, i) in shown.clone().enumerate() {
+        let id = &known[i];
         let area = &zone.areas[id];
         let selected = i == sel;
         let standing = if id == here {
@@ -454,8 +482,8 @@ pub(crate) fn build_map_grid(
             ""
         };
         let fg = if selected { PALETTE.menu_sel } else { PALETTE.menu };
-        grid.text(0, LIST_ROW + i, if selected { "> " } else { "  " }, fg, false);
-        grid.text(2, LIST_ROW + i, &format!("{:<24}{standing}", area.name), fg, false);
+        grid.text(0, LIST_ROW + line_no, if selected { "> " } else { "  " }, fg, false);
+        grid.text(2, LIST_ROW + line_no, &format!("{:<24}{standing}", area.name), fg, false);
 
         // The network: where this one leads, as far as you have found out.
         let onward: Vec<&str> = crate::area::exits(area)
@@ -465,9 +493,10 @@ pub(crate) fn build_map_grid(
             .collect();
         if !onward.is_empty() {
             let line = format!("-> {}", onward.join(", "));
-            grid.text(40, LIST_ROW + i, &line, PALETTE.dim, false);
+            grid.text(40, LIST_ROW + line_no, &line, PALETTE.dim, false);
         }
     }
+    more(grid, LIST_ROW + MAP_ROWS, &shown, known.len());
 
     draw_message(grid, message);
     hint(grid, "Up/Down read   Enter walk there if it is next door   Esc back");
@@ -602,6 +631,26 @@ mod tests {
         let status: String = (0..grid.w).map(|x| grid.cells[STATUS_ROW * grid.w + x].ch).collect();
         assert!(status.contains("HP 38/38"), "{status}");
         assert!(status.contains("Day 1 06:00"), "{status}");
+    }
+
+    #[test]
+    fn a_long_list_scrolls_to_keep_the_cursor_on_screen() {
+        // Short enough to fit: everything, and no scroll note.
+        assert_eq!(window(0, 5, 10), 0..5);
+        assert_eq!(window(4, 5, 10), 0..5);
+
+        // Longer than the rows: the window follows the cursor and stops at the ends.
+        assert_eq!(window(0, 30, 10), 0..10);
+        assert_eq!(window(15, 30, 10), 10..20);
+        assert_eq!(window(29, 30, 10), 20..30);
+        // Never past the end, whatever the cursor claims.
+        assert_eq!(window(99, 30, 10), 20..30);
+        for sel in 0..30 {
+            let w = window(sel, 30, 10);
+            assert_eq!(w.len(), 10);
+            assert!(w.contains(&sel), "cursor {sel} fell out of {w:?}");
+        }
+        assert_eq!(window(0, 0, 10), 0..0, "an empty list is not a panic");
     }
 
     #[test]
