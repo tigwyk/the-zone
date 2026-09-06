@@ -12,6 +12,13 @@ const STATUS_ROW: usize = 28;
 const FOOTER_ROW: usize = 29;
 const HINT_ROW: usize = 25;
 const LIST_ROW: usize = 4;
+/// Full-width text sits here, clear of the preview column at 44.
+const BLURB_ROW: usize = 17;
+/// The right-hand column on the creation and inventory screens.
+pub(crate) const PANEL_COL: usize = 44;
+/// The last row the panel occupies. Below it, text may run the full width.
+#[allow(dead_code)] // read by the gutter guard in the playthrough tests
+pub(crate) const PANEL_LAST_ROW: usize = 15;
 
 /// Rows 28–29, on every in-run screen (SPEC §4).
 pub(crate) fn draw_chrome(grid: &mut TileGrid, run: &RunState, clock: &GameClock) {
@@ -67,12 +74,20 @@ pub(crate) fn build_creation_grid(grid: &mut TileGrid, phase: usize, sel: usize,
         for (i, b) in BACKGROUNDS.iter().enumerate() {
             row(grid, 0, LIST_ROW + i, i == sel, b.name);
         }
-        grid.text(2, LIST_ROW + BACKGROUNDS.len() + 1, BACKGROUNDS[sel].blurb, PALETTE.desc, false);
+        // Below the preview column, which owns everything from column 44.
+        grid.text(0, BLURB_ROW, BACKGROUNDS[sel].blurb, PALETTE.desc, false);
         hint(grid, "Up/Down choose   Enter confirm");
     } else {
         let picked = tags.len();
-        let head = format!("Tag {TAG_COUNT} skills - each starts +15 and rises twice as fast.  {picked}/{TAG_COUNT}");
+        let head = format!("Tag {TAG_COUNT} skills, +15 each:  {picked}/{TAG_COUNT}");
         grid.text(0, 2, &head, PALETTE.desc, false);
+        grid.text(
+            0,
+            BLURB_ROW,
+            "Tagged skills also rise twice as fast.",
+            PALETTE.desc,
+            false,
+        );
         for (i, name) in SKILL_NAMES.iter().enumerate() {
             let mark = if tags.contains(&i) { "*" } else { " " };
             let label = format!("{mark} {:<16}{:>3}", name, preview.skills[i]);
@@ -82,16 +97,16 @@ pub(crate) fn build_creation_grid(grid: &mut TileGrid, phase: usize, sel: usize,
     }
 
     // Live preview of the stalker on the right.
-    grid.text(44, 2, BACKGROUNDS[preview_bg].name, PALETTE.menu_sel, true);
+    grid.text(PANEL_COL, 2, BACKGROUNDS[preview_bg].name, PALETTE.menu_sel, true);
     for (i, name) in ATTR_NAMES.iter().enumerate() {
         let line = format!("{name} {}", preview.attrs[i]);
-        grid.text(44, LIST_ROW + i, &line, PALETTE.status, false);
+        grid.text(PANEL_COL, LIST_ROW + i, &line, PALETTE.status, false);
     }
     let derived = format!("HP {}   RU {}", preview.max_hp, preview.rubles);
-    grid.text(44, LIST_ROW + ATTR_NAMES.len() + 1, &derived, PALETTE.status, false);
+    grid.text(PANEL_COL, LIST_ROW + ATTR_NAMES.len() + 1, &derived, PALETTE.status, false);
     let mut y = LIST_ROW + ATTR_NAMES.len() + 3;
     for (faction, rep) in &preview.rep {
-        grid.text(44, y, &format!("{faction} {rep:+}"), PALETTE.desc, false);
+        grid.text(PANEL_COL, y, &format!("{faction} {rep:+}"), PALETTE.desc, false);
         y += 1;
     }
 }
@@ -132,7 +147,7 @@ pub(crate) fn build_inventory_grid(
 
     // Attributes and skills on the right — this is where creation choices show up.
     // Attributes are effective: artifact bonuses in, radiation penalty out (GDD §4, §6).
-    grid.text(44, 2, BACKGROUNDS[run.background].name, PALETTE.menu_sel, true);
+    grid.text(PANEL_COL, 2, BACKGROUNDS[run.background].name, PALETTE.menu_sel, true);
     for (i, name) in ATTR_NAMES.iter().enumerate() {
         let now = attr(run, zone, i);
         let fg = match now.cmp(&run.attrs[i]) {
@@ -140,12 +155,12 @@ pub(crate) fn build_inventory_grid(
             std::cmp::Ordering::Greater => PALETTE.cyan,
             std::cmp::Ordering::Equal => PALETTE.status,
         };
-        grid.text(44, LIST_ROW + i, &format!("{name} {now}"), fg, false);
+        grid.text(PANEL_COL, LIST_ROW + i, &format!("{name} {now}"), fg, false);
     }
     for (i, name) in SKILL_NAMES.iter().enumerate() {
         let mark = if run.tags[i] { "*" } else { " " };
         let line = format!("{mark} {:<16}{:>3}", name, run.skills[i]);
-        grid.text(56, LIST_ROW + i, &line, PALETTE.desc, false);
+        grid.text(PANEL_COL + 12, LIST_ROW + i, &line, PALETTE.desc, false);
     }
 
     grid.text(0, MESSAGE_ROW, message, PALETTE.desc, false);
@@ -252,7 +267,7 @@ pub(crate) fn build_trade_grid(
         vendor.faction,
         rep_word(rep)
     );
-    grid.text(44, 0, &head, PALETTE.status, false);
+    grid.text(PANEL_COL, 0, &head, PALETTE.status, false);
 
     let (buy_fg, sell_fg) = if buying {
         (PALETTE.menu_sel, PALETTE.menu)

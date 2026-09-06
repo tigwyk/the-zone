@@ -96,18 +96,13 @@ const LETTER_KEYS: [(KeyCode, char); 26] = [
     (KeyCode::KeyZ, 'Z'),
 ];
 
-fn main() {
-    App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "The Zone — M3".into(),
-                resolution: WindowResolution::new(1280, 720).with_scale_factor_override(1.0),
-                present_mode: PresentMode::AutoVsync,
-                ..default()
-            }),
-            ..default()
-        }))
-        .init_resource::<MenuSelection>()
+/// Everything except the window and the renderer. `main` adds those on top; the
+/// headless playthrough tests at the bottom of this file drive exactly this.
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
+struct GameInput;
+
+fn add_game(app: &mut App) -> &mut App {
+    app.init_resource::<MenuSelection>()
         .init_resource::<Cursor>()
         .init_resource::<MessageLine>()
         .init_resource::<ZoneData>()
@@ -121,7 +116,7 @@ fn main() {
         .init_resource::<Creation>()
         .init_resource::<TileGrid>()
         .init_state::<GameState>()
-        .add_systems(Startup, (setup, enter_creation))
+        .add_systems(Startup, enter_creation)
         .add_systems(OnEnter(GameState::CharacterCreation), enter_creation)
         .add_systems(OnEnter(GameState::Area), redraw_area)
         .add_systems(OnEnter(GameState::Inventory), enter_inventory)
@@ -129,34 +124,31 @@ fn main() {
         .add_systems(OnEnter(GameState::GameOver), enter_gameover)
         .add_systems(
             Update,
-            (creation_input, render_grid)
-                .chain()
-                .run_if(in_state(GameState::CharacterCreation)),
+            (
+                creation_input.run_if(in_state(GameState::CharacterCreation)),
+                menu_input.run_if(in_state(GameState::Area)),
+                inventory_input.run_if(in_state(GameState::Inventory)),
+                trade_input.run_if(in_state(GameState::Trade)),
+                gameover_input.run_if(in_state(GameState::GameOver)),
+            )
+                .in_set(GameInput),
         )
-        .add_systems(
-            Update,
-            (menu_input, render_grid)
-                .chain()
-                .run_if(in_state(GameState::Area)),
-        )
-        .add_systems(
-            Update,
-            (inventory_input, render_grid)
-                .chain()
-                .run_if(in_state(GameState::Inventory)),
-        )
-        .add_systems(
-            Update,
-            (trade_input, render_grid)
-                .chain()
-                .run_if(in_state(GameState::Trade)),
-        )
-        .add_systems(
-            Update,
-            (gameover_input, render_grid)
-                .chain()
-                .run_if(in_state(GameState::GameOver)),
-        )
+}
+
+fn main() {
+    let mut app = App::new();
+    app.add_plugins(DefaultPlugins.set(WindowPlugin {
+        primary_window: Some(Window {
+            title: "The Zone — M3".into(),
+            resolution: WindowResolution::new(1280, 720).with_scale_factor_override(1.0),
+            present_mode: PresentMode::AutoVsync,
+            ..default()
+        }),
+        ..default()
+    }));
+    add_game(&mut app)
+        .add_systems(Startup, setup)
+        .add_systems(Update, render_grid.after(GameInput))
         .run();
 }
 
@@ -566,4 +558,239 @@ fn pressed_letter(keys: &ButtonInput<KeyCode>) -> Option<char> {
         .iter()
         .find(|(k, _)| keys.just_pressed(*k))
         .map(|(_, c)| *c)
+}
+
+// ---- headless playthrough (SPEC §7, §10.3) ----
+//
+// The game is `add_game` plus a window and a renderer. Drop those two and the same
+// app runs headless, so a test can press keys into it and read the TileGrid back.
+// This is the acceptance play-through the milestones ask for, run by `cargo test`.
+
+#[cfg(test)]
+mod playthrough {
+    use super::*;
+    use crate::render::GRID_W;
+    use crate::run::Skill;
+    use bevy::state::app::StatesPlugin;
+
+    struct Sim {
+        app: App,
+    }
+
+    impl Sim {
+        /// A fresh app on a fixed seed, wound forward to the creation screen.
+        fn new() -> Self {
+            let mut app = App::new();
+            app.add_plugins((MinimalPlugins, StatesPlugin));
+            app.init_resource::<ButtonInput<KeyCode>>();
+            add_game(&mut app);
+            app.insert_resource(Rng::new(20260905));
+            app.update();
+            Sim { app }
+        }
+
+        /// One keypress, then an idle frame so the state transition it asked for
+        /// lands and the new screen is built before anything is read back.
+        fn press(&mut self, key: KeyCode) -> &mut Self {
+            self.app
+                .world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(key);
+            self.app.update();
+            // `press` only sets just_pressed on a key that was up, so let it up again.
+            let mut keys = self.app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            keys.release(key);
+            keys.clear();
+            self.app.update();
+            self
+        }
+
+        fn row(&self, y: usize) -> String {
+            let grid = self.app.world().resource::<TileGrid>();
+            (0..GRID_W)
+                .map(|x| grid.cells[y * GRID_W + x].ch)
+                .collect::<String>()
+                .trim_end()
+                .to_string()
+        }
+
+        fn screen(&self) -> String {
+            (0..30).map(|y| self.row(y) + "\n").collect()
+        }
+
+        fn shows(&self, text: &str) -> bool {
+            self.screen().contains(text)
+        }
+
+        fn assert_shows(&self, text: &str) {
+            assert!(self.shows(text), "expected `{text}` on:\n{}", self.screen());
+        }
+
+        /// The right-hand panel starts at `PANEL_COL`, so the column before it is a
+        /// gutter. Anything in it means left-hand text has run under the panel and
+        /// is being overwritten by it — how `rises twiLoner fast` got shipped.
+        fn assert_gutter_clear(&self) {
+            let grid = self.app.world().resource::<TileGrid>();
+            for y in 0..=screens::PANEL_LAST_ROW {
+                let ch = grid.cells[y * GRID_W + screens::PANEL_COL - 1].ch;
+                assert_eq!(ch, ' ', "row {y} runs into the panel:\n{}", self.screen());
+            }
+        }
+
+        /// Moves the menu cursor onto `label` and confirms it. Panics if the label
+        /// is not in the menu, which is what makes this a test and not a click macro.
+        fn choose(&mut self, label: &str) -> &mut Self {
+            let wanted = format!("> {label}");
+            for _ in 0..6 {
+                if (22..27).any(|y| self.row(y) == wanted) {
+                    return self.press(KeyCode::Enter);
+                }
+                self.press(KeyCode::ArrowDown);
+            }
+            panic!("no menu entry `{label}` on:\n{}", self.screen());
+        }
+
+        fn state(&self) -> GameState {
+            *self.app.world().resource::<State<GameState>>().get()
+        }
+
+        fn run(&self) -> &RunState {
+            self.app.world().resource::<RunState>()
+        }
+
+        fn run_mut(&mut self) -> Mut<'_, RunState> {
+            self.app.world_mut().resource_mut::<RunState>()
+        }
+
+        /// Background 0 (Loner), the first three skills tagged.
+        fn roll_a_stalker(&mut self) -> &mut Self {
+            self.press(KeyCode::Enter) // take the Loner
+                .press(KeyCode::Enter) // tag Small Guns
+                .press(KeyCode::ArrowDown)
+                .press(KeyCode::Enter) // tag Energy Weapons
+                .press(KeyCode::ArrowDown)
+                .press(KeyCode::Enter) // tag Melee, and the run starts
+        }
+    }
+
+    #[test]
+    fn creation_rolls_a_stalker_and_drops_them_at_the_camp() {
+        let mut sim = Sim::new();
+        sim.assert_shows("THE ZONE - a new stalker");
+        sim.assert_shows("Loner");
+        sim.assert_gutter_clear();
+        sim.press(KeyCode::Enter); // into the tag-skills phase
+        sim.assert_shows("Tag 3 skills");
+        sim.assert_gutter_clear();
+
+        let mut sim = Sim::new();
+        sim.roll_a_stalker();
+        assert_eq!(sim.state(), GameState::Area);
+        sim.assert_shows("A camp on the Zone");
+        sim.assert_shows("Travel");
+        sim.assert_shows("HP 38/38");
+        sim.assert_shows("Day 1 06:00");
+        assert!(sim.run().tags[0] && sim.run().tags[1] && sim.run().tags[2]);
+    }
+
+    #[test]
+    fn the_hidden_letter_opens_the_hatch_and_the_log_unlocks_the_quarry_crate() {
+        let mut sim = Sim::new();
+        sim.roll_a_stalker();
+
+        // The camp's D is ungated, so it is lit from the moment you arrive.
+        assert!(sim.run().is_revealed("camp", 'D'));
+        sim.press(KeyCode::KeyD);
+        sim.assert_shows("A cramped bunker beneath the camp");
+
+        // The quarry crate is gated on a flag you can only pick up down here.
+        assert!(!sim.run().flags.contains("read_the_log"));
+        sim.choose("Read the log");
+        assert!(sim.run().flags.contains("read_the_log"));
+
+        sim.choose("Return");
+        sim.choose("Travel"); // camp -> road
+        sim.assert_shows("A dirt road between the camp and the wastes");
+        sim.choose("Cut toward the field");
+        sim.assert_shows("Bent air over a scorched clearing");
+
+        // Read the field before walking into it, then cross on the line you found.
+        sim.run_mut().skills[Skill::StalkerLore.index()] = 95;
+        let hp = sim.run().hp;
+        sim.choose("Scan");
+        sim.choose("Push Through");
+        sim.assert_shows("A quarry rim above black water");
+        assert_eq!(sim.run().hp, hp, "a scanned field is crossed unharmed");
+
+        // The flag set back in the hatch is what lights S here.
+        assert!(sim.run().is_revealed("quarry", 'S'));
+        sim.press(KeyCode::KeyS);
+        sim.assert_shows("The log was right");
+    }
+
+    #[test]
+    fn an_unrevealed_letter_is_just_art() {
+        let mut sim = Sim::new();
+        sim.roll_a_stalker();
+        sim.choose("Travel"); // camp -> road
+        sim.choose("Cut toward the field");
+
+        // G is behind a Stalker Lore check the starting Loner is unlikely to pass;
+        // whichever way this seed rolled it, the key must agree with the letter.
+        let revealed = sim.run().is_revealed("field", 'G');
+        let before = sim.run().items.clone();
+        sim.press(KeyCode::KeyG);
+        assert_eq!(
+            sim.run().items != before,
+            revealed,
+            "the key works exactly when the letter is lit"
+        );
+    }
+
+    #[test]
+    fn the_counter_takes_your_rubles_and_the_pack_remembers() {
+        let mut sim = Sim::new();
+        sim.roll_a_stalker();
+        let purse = sim.run().rubles;
+
+        sim.choose("Trade");
+        assert_eq!(sim.state(), GameState::Trade);
+        sim.assert_shows("TRADE - Sidorovich");
+        sim.assert_shows("Medkit");
+
+        sim.press(KeyCode::Enter); // buy whatever is on the top row
+        assert!(sim.run().rubles < purse, "buying costs money");
+        sim.assert_shows("You buy the");
+
+        sim.press(KeyCode::Escape);
+        assert_eq!(sim.state(), GameState::Area);
+
+        sim.press(KeyCode::Tab);
+        assert_eq!(sim.state(), GameState::Inventory);
+        sim.assert_shows("INVENTORY");
+        sim.assert_shows("Medkit");
+        sim.assert_gutter_clear();
+        sim.press(KeyCode::Escape);
+        assert_eq!(sim.state(), GameState::Area);
+    }
+
+    #[test]
+    fn resting_costs_time_and_rubles_and_a_dead_stalker_stops_playing() {
+        let mut sim = Sim::new();
+        sim.roll_a_stalker();
+
+        let purse = sim.run().rubles;
+        sim.run_mut().rads = 250;
+        sim.choose("Rest");
+        assert_eq!(sim.run().rubles, purse - run::REST_COST);
+        assert_eq!(sim.run().rads, 150);
+        sim.assert_shows("Day 1 14:00");
+
+        // Radiation kills at 1000, and the next action is the one that finds out.
+        sim.run_mut().rads = sim::RAD_DEATH;
+        sim.choose("Look");
+        assert_eq!(sim.state(), GameState::GameOver);
+        sim.assert_shows("THE ZONE IS STILL THERE");
+        sim.assert_shows("Radiation");
+    }
 }

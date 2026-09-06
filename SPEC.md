@@ -19,7 +19,7 @@ before editing. [GDD.md](GDD.md) says what the game is; this says how it is buil
 ## 2. Repo layout
 
 ```
-src/main.rs        app setup, states, systems registration
+src/main.rs        add_game (states + systems), window/renderer wiring, playthrough
 src/render.rs      Glyph, TileGrid, Palette, render_grid          (split in M1)
 src/area.rs        .area loader, zone.ron loader, scene build_grid (split in M1)
 src/run.rs         RunState, Rng, check(), price()                    (M2)
@@ -213,6 +213,15 @@ Letters are never menu accelerators. Do not add mouse handling.
 - Numbers from GDD tables (thresholds, AP costs, price factors) live as named consts
   next to the function that uses them, with the GDD section in a comment. Do not
   scatter magic numbers.
+- **The game runs headless.** `add_game(&mut App)` registers every resource, state and
+  input system; `main` adds only the window, the camera and `render_grid` on top. So a
+  test builds the same app on `MinimalPlugins + StatesPlugin`, presses keys into
+  `ButtonInput<KeyCode>`, and reads the `TileGrid` back as text. Keep it that way: no
+  game logic in `main`, nothing in an input system that needs a window.
+- **Each milestone's acceptance play-through is a test**, in `mod playthrough` at the
+  bottom of `main.rs`, driven through the `Sim` harness (`press`, `choose`, `assert_shows`,
+  `assert_gutter_clear`). Seed the `Rng` so the run is reproducible. Assert on what the
+  player can see, not on internals, wherever both would work.
 - Every non-trivial function (a branch, a loop, a formula) gets **one** `#[test]` that
   fails if the logic breaks. Required tests so far: `check()` crit edges, `price()`
   buy > sell and Barter/rep direction, `.area` loader marker parsing and duplicate
@@ -240,7 +249,8 @@ Letters are never menu accelerators. Do not add mouse handling.
 
 1. Every step in the PLAN.md milestone checklist is ticked.
 2. `cargo build` clean, `cargo test` green, `cargo run` reaches the Area state.
-3. The milestone's acceptance test (named in PLAN.md) has been played through once.
+3. The milestone's acceptance test (named in PLAN.md) exists as a `playthrough` test
+   and passes.
 4. PLAN.md §0 status paragraph updated; any new `Action` variant added to §5.2 here;
    any new number added to the GDD table it belongs in.
 5. Nothing was added that the next milestone did not ask for.

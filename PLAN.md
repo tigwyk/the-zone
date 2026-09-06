@@ -38,8 +38,17 @@ down by the GDD table and kills at 1000; a dead stalker gets an end screen. Hidd
 letters are now **gated**: the field's `G` needs a Stalker Lore check rolled once per
 run, and the quarry's `S` stays plain art until you have read the log in the hatch.
 
-Twenty-one tests green: `.area` marker parsing and duplicate rejection, a real
-`zone.ron` load, `check()` crit edges, d100 range, price direction and GDD anchors,
+**The game tests itself.** `add_game` registers every resource, state and input system;
+`main` adds only the window, camera and `render_grid`. So `cargo test` builds the same
+app headless on `MinimalPlugins`, presses keys into it and reads the `TileGrid` back as
+text - the milestone acceptance play-throughs are now tests, not something a human has
+to sit and do. Writing the first one immediately caught a shipped layout bug (the
+creation header ran under the preview column and rendered as `rises twiLoner fast`),
+so there is a gutter guard to stop that class coming back.
+
+Twenty-six tests green - five of them whole play-throughs (creation to camp; the camp
+letter to the hatch to the log to the quarry crate; an unrevealed letter staying inert;
+the counter taking rubles into a usable pack; resting, then dying of radiation) - plus: `.area` marker parsing and duplicate rejection, a real `zone.ron` load, `check()` crit edges, d100 range, price direction and GDD anchors,
 character roll, item removal, the trade round trip, affordability, hostile refusal,
 healing, the radiation table, night hours, artifact rads and bonuses, emission shelter
 and reset, bolts and scanned crossings, artifact-taken-once, flag gates, check gates
