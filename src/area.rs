@@ -57,9 +57,6 @@ pub(crate) struct EnemyData {
     pub skill: i32,
     pub dice: (u32, u32),
     pub armor: i32,
-    /// A mutant that can only bite has to close the band first.
-    #[serde(default)]
-    pub melee_only: bool,
     /// GDD §8: bandits and Fleshes run at under 20% HP; bloodsuckers do not.
     #[serde(default)]
     pub flees: bool,
@@ -498,8 +495,8 @@ fn load_area_file(path: &Path) -> (Vec<String>, Vec<String>, Vec<(usize, usize, 
     for (row, line) in art_lines.iter().enumerate() {
         let (stripped, secrets) = strip_markers(line, path, row);
         assert!(
-            stripped.len() <= 80,
-            "{}:{}: art line exceeds 80 columns",
+            stripped.len() <= GRID_W,
+            "{}:{}: art line exceeds {GRID_W} columns",
             path.display(),
             row
         );
@@ -831,7 +828,7 @@ mod tests {
         assert_eq!(exits(&zone.areas["field"]), vec!["quarry", "road"]);
         assert!(zone.areas["camp"].secrets.contains_key(&'D'));
         assert!(zone.areas["field"].anomaly.is_some());
-        assert_eq!(zone.areas["camp"].secret_cells, vec![(13, 14, 'D')]);
+        assert_eq!(zone.areas["camp"].secret_cells, vec![(49, 17, 'D')]);
         assert!(zone.vendors.contains_key("trader"));
         assert!(zone.items.contains_key("medkit"));
     }

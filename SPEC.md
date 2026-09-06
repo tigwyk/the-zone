@@ -25,7 +25,7 @@ src/area.rs        .area loader, zone.ron loader, scene build_grid (split in M1)
 src/run.rs         RunState, Rng, check(), price()                    (M2)
 src/screens.rs     modal screens (creation, inventory, trade) + chrome (M2)
 src/sim.rs         clock, radiation, emissions, anomaly fields, gates    (M3)
-src/combat.rs      bands, AP turns, the enemy machine, the combat screen (M4)
+src/combat.rs      AP turns, the enemy machine, the combat screen          (M4)
 src/dialogue.rs    NPCs, menu-option dialogue, the dialogue screen        (M5)
 src/quest.rs       jobs, standing, the job board and journal screens      (M5)
 src/meta.rs        memorial, unlocks, suspend, endings, the save files    (M6)
@@ -89,7 +89,7 @@ struct TileGrid { w: usize, cells: Vec<Glyph> }   // 120 × 33, row-major
 
 - Grid is **120 columns × 33 rows** (native 16:9). Row map is fixed (GDD §3):
   art 0–17, blank 18, description 19–20, blank 21, menu 22–26, blank 27, message 28,
-  blank 29, status 30, blank 31, footer 32. The art is authored ≤80 columns and drawn
+  blank 29, status 30, blank 31, footer 32. The art is authored ≤120 columns and drawn
   centered. Modal screens own rows 0–27 and must not touch 28–32.
 - `TileGrid::set` silently ignores out-of-range writes. Build functions may rely on
   that instead of bounds-checking every string. The exception is row 27: draw it with
@@ -117,7 +117,7 @@ A load error is a panic with the file name and line; do not fall back to default
 ### 5.1 `areas/<id>.area`
 
 ```
-<art lines, up to 18 rows, up to 80 columns after marker stripping>
+<art lines, up to 18 rows, up to 120 columns after marker stripping>
 ---
 <description, 1–2 lines, ≤ 78 chars each>
 ```
@@ -220,15 +220,15 @@ own table:
 ```ron
         "quarry": Area(..., encounter: Some("flesh"), ...),
     enemies: {
-        "flesh": Enemy(name: "Flesh", hp: 30, ap: 7, skill: 45, dice: (2, 6),
-                       armor: 1, melee_only: true, flees: true,
-                       loot: [("flesh_eye", 1)]),
+        "flesh": Enemy(name: "Flesh", hp: 26, ap: 7, skill: 45, dice: (2, 6),
+                       armor: 1, flees: true, loot: [("flesh_eye", 1)]),
     },
 ```
 
-Menus have at most 5 entries — the combat menu included, which is why using an item in
-a fight is the footer's Inventory (4 AP) rather than a sixth verb. A secret letter must not also be a menu key (menus have
-no letter keys, so this is automatic; keep it that way).
+Menus have at most 5 entries; the combat menu is three (Attack, Aim, Flee), which is why
+using an item in a fight is the footer's Inventory (4 AP) rather than a fourth verb. A
+secret letter must not also be a menu key (menus have no letter keys, so this is
+automatic; keep it that way).
 
 ### 5.3 The other data files
 
@@ -359,7 +359,7 @@ Letters are never menu accelerators. Do not add mouse handling.
 - Messages: one line, ≤ 78 chars.
 - The loader enforces both: an over-long or shouting `Say`, or a description with an
   exclamation mark in it, is a load panic naming the file.
-- Art: ASCII only, ≤ 80 × 18 including secret letters. Secret letters are uppercase and
+- Art: ASCII only, ≤ 120 × 18 including secret letters. Secret letters are uppercase and
   should sit on something that makes sense to press (a door, a glint, a hatch).
 - About one secret per three areas. Secrets pay off: a room, an artifact, lore.
 - Palette meaning is fixed (GDD §11). Do not use bold cyan for anything but secrets.

@@ -179,8 +179,13 @@ pub(crate) fn build_creation_grid(
     }
     let derived = format!("HP {}   RU {}", preview.max_hp, preview.rubles);
     grid.text(PANEL_COL, LIST_ROW + ATTR_NAMES.len() + 1, &derived, PALETTE.status, false);
+    // `rep` is a HashMap, so its iteration order is not stable; sort the factions or
+    // the preview list reshuffles on every redraw (a locked class re-rolls the preview
+    // each Enter, and "bandits +30" / "loners -20" swapped places).
     let mut y = LIST_ROW + ATTR_NAMES.len() + 3;
-    for (faction, rep) in &preview.rep {
+    let mut factions: Vec<(&String, &i32)> = preview.rep.iter().collect();
+    factions.sort_unstable();
+    for (faction, rep) in factions {
         grid.text(PANEL_COL, y, &format!("{faction} {rep:+}"), PALETTE.desc, false);
         y += 1;
     }
@@ -687,6 +692,29 @@ mod tests {
         let status: String = (0..grid.w).map(|x| grid.cells[STATUS_ROW * grid.w + x].ch).collect();
         assert!(status.contains("HP 38/38"), "{status}");
         assert!(status.contains("Day 1 06:00"), "{status}");
+    }
+
+    /// The creation preview draws faction standing from a `HashMap`, so it has to sort
+    /// it or the list reshuffles every redraw — hammering Enter on a locked class was
+    /// swapping "bandits +30" and "loners -20" place.
+    #[test]
+    fn the_creation_preview_lists_factions_in_a_stable_order() {
+        use crate::render::GRID_W;
+
+        let mut grid = TileGrid::new(GRID_W, crate::render::GRID_H);
+        // Background 3 (Bandit) carries bandits +30 and loners -20.
+        build_creation_grid(&mut grid, &MetaProgress::default(), 0, 3, 0, &[], "");
+
+        let faction_row = |y: usize| {
+            (PANEL_COL..GRID_W)
+                .map(|x| grid.cells[y * GRID_W + x].ch)
+                .collect::<String>()
+                .trim_end()
+                .to_string()
+        };
+        let first = LIST_ROW + ATTR_NAMES.len() + 3;
+        assert_eq!(faction_row(first), "bandits +30");
+        assert_eq!(faction_row(first + 1), "loners -20");
     }
 
     #[test]

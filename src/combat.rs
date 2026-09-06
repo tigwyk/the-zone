@@ -1,5 +1,6 @@
-//! Turn-based, AP-driven combat over three range bands (GDD §8). No grid: the area
-//! art stays up and the combatants are listed under it.
+//! Turn-based, AP-driven combat at close quarters (GDD §8). No grid, no distance:
+//! everything is already in reach, and the area art stays up while the combatants
+//! are listed under it.
 
 use bevy::prelude::*;
 
@@ -18,10 +19,9 @@ const MENU_ROW: usize = 22;
 // AP costs (GDD §8).
 pub(crate) const AP_ATTACK: i32 = 3;
 pub(crate) const AP_AIMED: i32 = 6;
-pub(crate) const AP_MOVE: i32 = 3;
 pub(crate) const AP_ITEM: i32 = 4;
 /// The cheapest thing anyone can do. Below this, the turn is over.
-const AP_MIN: i32 = AP_MOVE;
+const AP_MIN: i32 = AP_ATTACK;
 
 const AIMED_BONUS: i32 = 20;
 /// An aimed shot crits on 5, not just on 1 (GDD §8).
@@ -31,7 +31,6 @@ const AIMED_CRIT_ON: u32 = 5;
 /// percentage point of win rate: base damage is low enough that doubling it
 /// occasionally is weak unless it happens often. Five is a real 6-16% crit chance.
 const CRIT_PER_POINT: u32 = 5;
-const FAR_PENALTY: i32 = -20;
 /// Bare hands, for a stalker who sold their knife (GDD §8).
 const UNARMED: (u32, u32) = (1, 3);
 /// GDD §8: an enemy that runs does so under a fifth of its health.
@@ -41,58 +40,14 @@ const FLEE_BELOW: i32 = 5;
 const BASE_AP: i32 = 7;
 const FASTER_PER_AP: i32 = 8;
 
-#[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum Band {
-    #[default]
-    Far,
-    Near,
-    Melee,
-}
-
-impl Band {
-    fn name(self) -> &'static str {
-        match self {
-            Band::Far => "far",
-            Band::Near => "near",
-            Band::Melee => "melee",
-        }
-    }
-
-    /// To-hit modifier for shooting across this band (GDD §8).
-    fn to_hit(self) -> i32 {
-        match self {
-            Band::Far => FAR_PENALTY,
-            Band::Near | Band::Melee => 0,
-        }
-    }
-
-    fn closer(self) -> Band {
-        match self {
-            Band::Far => Band::Near,
-            _ => Band::Melee,
-        }
-    }
-
-    fn farther(self) -> Band {
-        match self {
-            Band::Melee => Band::Near,
-            _ => Band::Far,
-        }
-    }
-}
-
 #[derive(Resource, Default)]
 pub(crate) struct Combat {
     pub active: bool,
     pub enemy: String,
     pub hp: i32,
-    pub band: Band,
     pub ap: i32,
     /// Menu cursor, kept here so it survives a trip to the inventory.
     pub sel: usize,
-    /// A fleeing enemy at far range has to break away for a turn before it is
-    /// gone, so a gun still gets one shot at its back (GDD §8).
-    pub breaking: bool,
 }
 
 /// AP for one turn: 5 + AGI/2 (GDD §4), on the attribute as radiation leaves it.
@@ -112,10 +67,8 @@ pub(crate) fn start(
         active: true,
         enemy: enemy_id.to_string(),
         hp: enemy.hp,
-        band: Band::Far,
         ap: turn_ap(run, zone),
         sel: 0,
-        breaking: false,
     };
 
     // GDD §8: a bloodsucker is not there until it is. Spot it or it opens on you,
@@ -123,7 +76,6 @@ pub(crate) fn start(
     if enemy.ambush {
         let per = attr(run, zone, PER) * 10;
         if !matches!(check(per, 0, rng), Outcome::Success | Outcome::CritSuccess) {
-            combat.band = Band::Melee;
             let opener = enemy_turn(&enemy, combat, run, zone, rng);
             return format!("The air comes apart and something is on you. {opener}");
         }
@@ -138,8 +90,6 @@ pub(crate) fn start(
 pub(crate) enum Verb {
     Attack,
     Aimed,
-    CloseIn,
-    FallBack,
     Flee,
 }
 
@@ -170,27 +120,15 @@ fn weapon(run: &RunState, zone: &ZoneData) -> InHand {
     }
 }
 
-/// GDD §8: melee weapons only reach at the melee band.
-fn can_reach(skill: Skill, band: Band) -> bool {
-    skill != Skill::Melee || band == Band::Melee
-}
-
-/// The menu for this moment. Never more than five, so it fits rows 22-26; using an
-/// item is the footer's Inventory, not a sixth verb.
-pub(crate) fn menu(combat: &Combat, run: &RunState, zone: &ZoneData) -> Vec<(String, Verb)> {
-    let reaches = can_reach(weapon(run, zone).skill, combat.band);
+/// The menu for this moment: attack, aim, or run. Using an item is the footer's
+/// Inventory, not a fourth verb.
+pub(crate) fn menu(combat: &Combat) -> Vec<(String, Verb)> {
     let mut menu = Vec::new();
-    if reaches && combat.ap >= AP_ATTACK {
+    if combat.ap >= AP_ATTACK {
         menu.push((format!("Attack ({AP_ATTACK} AP)"), Verb::Attack));
     }
-    if reaches && combat.ap >= AP_AIMED {
+    if combat.ap >= AP_AIMED {
         menu.push((format!("Aimed Attack ({AP_AIMED} AP)"), Verb::Aimed));
-    }
-    if combat.band != Band::Melee && combat.ap >= AP_MOVE {
-        menu.push((format!("Close In ({AP_MOVE} AP)"), Verb::CloseIn));
-    }
-    if combat.band != Band::Far && combat.ap >= AP_MOVE {
-        menu.push((format!("Fall Back ({AP_MOVE} AP)"), Verb::FallBack));
     }
     // Flee costs whatever is left, so it is always on the table.
     menu.push(("Flee".into(), Verb::Flee));
@@ -203,15 +141,13 @@ fn roll_dice(dice: (u32, u32), rng: &mut Rng) -> i32 {
     (0..dice.0).map(|_| rng.roll(dice.1) as i32).sum()
 }
 
-/// GDD §8: damage = dice - armour, and a crit doubles it and ignores armour.
-/// `flat` is what the affixes add, and it doubles with the rest on a crit.
+/// GDD §8: damage = dice - armour, and a crit doubles what got *through* the armour
+/// rather than ignoring it, so a suit matters against the big hits too. `flat` is
+/// what the affixes add, and it doubles with the rest on a crit.
 fn damage(dice: (u32, u32), flat: i32, armor: i32, crit: bool, rng: &mut Rng) -> i32 {
     let rolled = roll_dice(dice, rng) + flat;
-    if crit {
-        (rolled * 2).max(1)
-    } else {
-        (rolled - armor).max(1)
-    }
+    let base = (rolled - armor).max(1);
+    if crit { base * 2 } else { base }
 }
 
 /// Damage resistance: what the suit is, plus what the Zone put on it.
@@ -260,27 +196,13 @@ pub(crate) fn act(
 
     let mut message = match verb {
         Verb::Attack | Verb::Aimed => attack(verb == Verb::Aimed, combat, run, zone, &enemy, rng),
-        Verb::CloseIn => {
-            combat.ap -= AP_MOVE;
-            combat.band = combat.band.closer();
-            combat.breaking = false;
-            format!("You close to {}.", combat.band.name())
-        }
-        Verb::FallBack => {
-            combat.ap -= AP_MOVE;
-            combat.band = combat.band.farther();
-            format!("You give ground to {}.", combat.band.name())
-        }
         Verb::Flee => {
             combat.ap = 0;
             // GDD §8: a Sneak check, *or* AGI against the fastest thing chasing you.
-            // Only the first half existed, and the bench showed what that cost: a
-            // stalker who decided to break off from a pseudogiant still died three
-            // times in five, which is not a choice, it is a formality.
-            let quiet = check_skill(run, Skill::Sneak.index(), combat.band.to_hit(), 1, rng);
+            let quiet = check_skill(run, Skill::Sneak.index(), 0, 1, rng);
             let legs = check(
                 attr(run, zone, AGI) * 10 - (enemy.ap - BASE_AP) * FASTER_PER_AP,
-                combat.band.to_hit(),
+                0,
                 rng,
             );
             let away = |o: &Outcome| matches!(o, Outcome::Success | Outcome::CritSuccess);
@@ -313,8 +235,7 @@ fn attack(
     let hand = weapon(run, zone);
     combat.ap -= if aimed { AP_AIMED } else { AP_ATTACK };
 
-    let modifier = combat.band.to_hit()
-        + night_penalty(run, zone)
+    let modifier = night_penalty(run, zone)
         + hand.to_hit
         + if aimed { AIMED_BONUS } else { 0 };
     let crit_on = if aimed { AIMED_CRIT_ON } else { 1 } + hand.crit * CRIT_PER_POINT;
@@ -377,7 +298,7 @@ pub(crate) fn end_turn(
     Some(message)
 }
 
-/// The three-state machine from GDD §8: flee, approach, attack.
+/// The two-state machine from GDD §8: flee when hurt, otherwise attack.
 fn enemy_turn(
     enemy: &EnemyData,
     combat: &mut Combat,
@@ -390,37 +311,22 @@ fn enemy_turn(
 
     // Flee: hurt badly enough to want out, and the kind of thing that runs.
     if enemy.flees && combat.hp * FLEE_BELOW < enemy.hp {
-        // One band per turn, and only away from far does it actually get clear. At
-        // far it first has to break away, so a gun that wounded it from a distance
-        // still gets one shot at its back instead of watching it vanish the moment
-        // it turns (GDD §8).
-        if combat.band == Band::Far {
-            if combat.breaking {
-                combat.active = false;
-                return format!("The {} breaks and is gone.", enemy.name);
-            }
-            combat.breaking = true;
-            return format!("The {} turns and runs.", enemy.name);
+        // It bolts. Whether it clears is speed: its AP against your AGI (5 is the
+        // base attribute), so a quick stalker can still run a wounded thing down.
+        let chance = 50
+            + (enemy.ap - BASE_AP) * FASTER_PER_AP
+            - (attr(run, zone, AGI) - 5) * FASTER_PER_AP;
+        if matches!(check(chance, 0, rng), Outcome::Success | Outcome::CritSuccess) {
+            combat.active = false;
+            return format!("The {} breaks and is gone.", enemy.name);
         }
-        combat.band = combat.band.farther();
-        return format!("The {} backs away to {}, bleeding.", enemy.name, combat.band.name());
-    }
-
-    // Approach: something that can only bite has to reach you first.
-    while ap >= AP_MOVE && enemy.melee_only && combat.band != Band::Melee {
-        combat.band = combat.band.closer();
-        ap -= AP_MOVE;
-        said.push(format!("The {} closes to {}.", enemy.name, combat.band.name()));
+        return format!("The {} turns to run, but you head it off.", enemy.name);
     }
 
     // Attack, as often as the AP allows.
     while ap >= AP_ATTACK {
         ap -= AP_ATTACK;
-        if enemy.melee_only && combat.band != Band::Melee {
-            break;
-        }
-        let modifier = combat.band.to_hit();
-        match check(enemy.skill, modifier, rng) {
+        match check(enemy.skill, 0, rng) {
             Outcome::Fail | Outcome::CritFail => {
                 said.push(format!("The {} misses.", enemy.name));
             }
@@ -457,11 +363,10 @@ pub(crate) fn build_combat_grid(
 
     let enemy = &zone.enemies[&combat.enemy];
     let line = format!(
-        "{:<16} HP {:>3}/{:<3}  {}",
+        "{:<16} HP {:>3}/{:<3}",
         enemy.name,
         combat.hp.max(0),
         enemy.hp,
-        combat.band.name()
     );
     grid.text(0, ENEMY_ROW, &line, PALETTE.red, true);
 
@@ -480,7 +385,7 @@ pub(crate) fn build_combat_grid(
     );
     grid.text(0, YOU_ROW, &mine, PALETTE.status, false);
 
-    for (i, (label, _)) in menu(combat, run, zone).iter().enumerate() {
+    for (i, (label, _)) in menu(combat).iter().enumerate() {
         let fg = if i == combat.sel { PALETTE.menu_sel } else { PALETTE.menu };
         grid.text(0, MENU_ROW + i, if i == combat.sel { "> " } else { "  " }, fg, false);
         grid.text(2, MENU_ROW + i, label, fg, false);
@@ -515,77 +420,42 @@ mod tests {
     }
 
     #[test]
-    fn bands_carry_the_gdd_to_hit_table() {
-        assert_eq!(Band::Far.to_hit(), -20);
-        assert_eq!(Band::Near.to_hit(), 0);
-        assert_eq!(Band::Melee.to_hit(), 0);
-        assert_eq!(Band::Far.closer(), Band::Near);
-        assert_eq!(Band::Near.closer(), Band::Melee);
-        assert_eq!(Band::Melee.closer(), Band::Melee, "melee is as close as it gets");
-        assert_eq!(Band::Melee.farther(), Band::Near);
-        assert_eq!(Band::Far.farther(), Band::Far);
-    }
-
-    #[test]
-    fn a_crit_doubles_the_dice_and_ignores_armour() {
+    fn a_crit_doubles_what_armour_let_through() {
         let mut rng = Rng::new(1);
-        // 4d1 is always 4: plain hit is 4 - 3 armour = 1, a crit is 8 through it.
+        // 4d1 is always 4: a plain hit is 4 - 3 armour = 1, and a crit is that 1 doubled.
         assert_eq!(damage((4, 1), 0, 3, false, &mut rng), 1);
-        assert_eq!(damage((4, 1), 0, 3, true, &mut rng), 8);
+        assert_eq!(damage((4, 1), 0, 3, true, &mut rng), 2);
         // Armour never reduces a hit below 1.
         assert_eq!(damage((1, 1), 0, 99, false, &mut rng), 1);
-        // An affix adds before armour, and doubles with everything on a crit.
+        // An affix adds before armour, and armour applies before the crit doubles.
         assert_eq!(damage((4, 1), 3, 3, false, &mut rng), 4);
-        assert_eq!(damage((4, 1), 3, 3, true, &mut rng), 14);
+        assert_eq!(damage((4, 1), 3, 3, true, &mut rng), 8);
     }
 
     #[test]
-    fn a_melee_weapon_only_reaches_at_the_melee_band() {
-        let (zone, mut run, _, mut combat) = fixture();
-        equip(&mut run, "knife");
+    fn the_menu_is_just_attack_aim_and_flee() {
+        let (_, _, _, combat) = fixture();
 
-        combat.band = Band::Far;
-        let far: Vec<Verb> = menu(&combat, &run, &zone).iter().map(|(_, v)| *v).collect();
-        assert!(!far.contains(&Verb::Attack), "no swinging a knife across a field");
-        assert!(far.contains(&Verb::CloseIn));
+        // No distance to close, so the whole menu is three verbs, in order.
+        let verbs: Vec<Verb> = menu(&combat).iter().map(|(_, v)| *v).collect();
+        assert_eq!(verbs, vec![Verb::Attack, Verb::Aimed, Verb::Flee]);
 
-        combat.band = Band::Melee;
-        let close: Vec<Verb> = menu(&combat, &run, &zone).iter().map(|(_, v)| *v).collect();
-        assert!(close.contains(&Verb::Attack) && close.contains(&Verb::Aimed));
-        assert!(!close.contains(&Verb::CloseIn), "already there");
-
-        // A pistol reaches from anywhere, and the menu never outgrows its five rows.
-        equip(&mut run, "pistol");
-        for band in [Band::Far, Band::Near, Band::Melee] {
-            combat.band = band;
-            let m = menu(&combat, &run, &zone);
-            assert!(m.iter().any(|(_, v)| *v == Verb::Attack));
-            assert!(m.len() <= 5, "{band:?} gave {} entries", m.len());
-        }
+        // An empty AP pool hides the swings but keeps the escape hatch.
+        let mut combat = combat;
+        combat.ap = 0;
+        let m = menu(&combat);
+        assert_eq!(m.len(), 1);
+        assert_eq!(m[0].1, Verb::Flee);
     }
 
     #[test]
-    fn a_mutant_closes_the_distance_before_it_can_bite() {
+    fn a_flesh_bites_immediately_with_no_distance_to_close() {
         let (zone, mut run, mut rng, mut combat) = fixture();
         let flesh = zone.enemies["flesh"].clone();
-        assert!(flesh.melee_only);
-        assert_eq!(combat.band, Band::Far);
 
-        let hp = run.hp;
+        // No approach turn: the first thing it does is swing.
         let msg = enemy_turn(&flesh, &mut combat, &mut run, &zone, &mut rng);
-        assert_eq!(combat.band, Band::Melee, "{msg}");
-        assert_eq!(run.hp, hp, "it spent the turn running, not biting");
-
-        // Now that it is on top of you it can actually land something.
-        let mut bitten = false;
-        for _ in 0..12 {
-            enemy_turn(&flesh, &mut combat, &mut run, &zone, &mut rng);
-            if run.hp < hp {
-                bitten = true;
-                break;
-            }
-        }
-        assert!(bitten, "a Flesh at melee has to connect eventually");
+        assert!(msg.contains("misses") || msg.contains("hits you"), "{msg}");
     }
 
     #[test]
@@ -593,19 +463,15 @@ mod tests {
         let (zone, mut run, mut rng, mut combat) = fixture();
         let flesh = zone.enemies["flesh"].clone();
 
-        // Under a fifth of its health, it wants out. One band a turn, and from far
-        // it first has to break away, so a wounded thing can still be caught.
-        combat.band = Band::Melee;
+        // Under a fifth of its health, it wants out and never swings again.
         combat.hp = flesh.hp / FLEE_BELOW - 1; // under a fifth, not at it
-        enemy_turn(&flesh, &mut combat, &mut run, &zone, &mut rng);
-        assert_eq!(combat.band, Band::Near, "one band a turn, so it can be caught");
-        enemy_turn(&flesh, &mut combat, &mut run, &zone, &mut rng);
-        assert_eq!(combat.band, Band::Far);
-        assert!(combat.active, "still catchable at far");
-        enemy_turn(&flesh, &mut combat, &mut run, &zone, &mut rng);
-        assert!(combat.active && combat.breaking, "it turns to run but is not gone yet");
-        enemy_turn(&flesh, &mut combat, &mut run, &zone, &mut rng);
-        assert!(!combat.active, "a turn later it is gone");
+        let hp = run.hp;
+        let msg = enemy_turn(&flesh, &mut combat, &mut run, &zone, &mut rng);
+        assert_eq!(run.hp, hp, "a fleeing flesh does not bite: {msg}");
+        assert!(
+            msg.contains("breaks and is gone") || msg.contains("head it off"),
+            "it runs, one way or the other: {msg}"
+        );
 
         // Killing it hands over the loot, once.
         let (_, mut run, _, _) = fixture();
@@ -621,17 +487,15 @@ mod tests {
         let (zone, mut run, mut rng, mut combat) = fixture();
         assert!(zone.enemies["bloodsucker"].ambush);
 
-        // Blind to it: it is already at melee and has had its go.
+        // Blind to it: it is already inside your guard and has had its go.
         run.attrs[PER] = 1;
-        let hp = run.hp;
         let msg = start("bloodsucker", &mut combat, &mut run, &zone, &mut rng);
-        assert_eq!(combat.band, Band::Melee, "{msg}");
-        assert!(run.hp <= hp, "it did not wait to be introduced");
+        assert!(msg.contains("The air comes apart"), "{msg}");
 
-        // Sharp enough to see it: the fight opens at range like any other.
+        // Sharp enough to see it: the fight opens clean, with your guard up.
         run.attrs[PER] = 10;
         let msg = start("bloodsucker", &mut combat, &mut run, &zone, &mut rng);
-        assert_eq!(combat.band, Band::Far, "{msg}");
+        assert!(msg.contains("catch the shimmer"), "{msg}");
     }
 
     #[test]
@@ -665,17 +529,16 @@ mod tests {
         equip(&mut run, "pistol");
         run.skills[Skill::SmallGuns.index()] = 90;
 
-        // Drive it like a player would: close, then shoot until something gives.
+        // Drive it like a player would: swing until something gives.
         for _ in 0..80 {
             if !combat.active || run.hp <= 0 {
                 break;
             }
-            let m = menu(&combat, &run, &zone);
-            let verb = m
+            let verb = menu(&combat)
                 .iter()
                 .find(|(_, v)| *v == Verb::Attack)
                 .map(|(_, v)| *v)
-                .unwrap_or(Verb::CloseIn);
+                .unwrap_or(Verb::Flee);
             act(verb, &mut combat, &mut run, &zone, &mut rng);
         }
         assert!(!combat.active, "the fight resolved");

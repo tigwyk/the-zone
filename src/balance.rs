@@ -156,7 +156,7 @@ fn one_fight(
 
     let mut rounds = 0;
     while combat.active && run.hp > 0 && rounds < ROUND_CAP {
-        let menu = combat::menu(&combat, &run, zone);
+        let menu = combat::menu(&combat);
         let hurt = run.hp as f32 / max_hp as f32;
         let verb = choose(&menu, loadout.policy, hurt);
         let before = combat.ap;
@@ -180,7 +180,7 @@ fn one_fight(
     Trial { end, rounds, hp_left: run.hp.max(0), max_hp }
 }
 
-/// Shoot if the range and the AP allow, otherwise close, otherwise give ground.
+/// Aim when the policy asks and the AP allows, otherwise swing, otherwise run.
 /// Only `Cautious` runs; the others stay in so a weapon can be measured to the end.
 fn choose(menu: &[(String, Verb)], policy: Policy, hurt: f32) -> Verb {
     let has = |v: Verb| menu.iter().any(|(_, m)| *m == v);
@@ -190,10 +190,8 @@ fn choose(menu: &[(String, Verb)], policy: Policy, hurt: f32) -> Verb {
     if policy == Policy::Aimed && has(Verb::Aimed) {
         return Verb::Aimed;
     }
-    for verb in [Verb::Attack, Verb::Aimed, Verb::CloseIn, Verb::FallBack] {
-        if has(verb) {
-            return verb;
-        }
+    if has(Verb::Attack) {
+        return Verb::Attack;
     }
     Verb::Flee
 }

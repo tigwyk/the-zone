@@ -26,7 +26,7 @@ game runs, ends, remembers, and tests itself.
 Thirteen modules on Bevy 0.19.1, fully data-driven. `main.rs` (app, states, input,
 play-throughs), `render.rs` (glyph, palette, renderer, scanlines), `area.rs` (loaders,
 scene build), `run.rs` (the stalker, checks, prices), `screens.rs` (modal screens, the
-map), `sim.rs` (the Zone acting on you), `combat.rs` (bands, AP turns), `loot.rs`
+map), `sim.rs` (the Zone acting on you), `combat.rs` (AP turns), `loot.rs`
 (rarity and affixes), `dialogue.rs` (NPCs), `quest.rs` (jobs and standing), `meta.rs`
 (what outlives a run), `audio.rs` (three cues), and `balance.rs` (the combat bench,
 test-only).
@@ -50,10 +50,11 @@ unmet line still shows, greyed. Job boards hand out carry / reach / kill work th
 settles itself, including a five-step chain to the centre. F2 maps what you have
 walked, F3 is the journal and the lore you have turned up.
 
-**Combat** is turn-based over three range bands on Fallout's AP economy: 5 + AGI/2 a
-turn, 3 to swing, 6 to aim, 3 to change band, 4 to dig something out of the pack. Seven
-things fight back, two with tricks of their own — a bloodsucker that opens on you if
-you do not spot it, a controller that takes the turn off a weak mind.
+**Combat** is turn-based at close quarters on Fallout's AP economy: 5 + AGI/2 a turn, 3
+to swing, 6 to aim, 4 to dig something out of the pack, and no distance to close — both
+sides are in reach from the first swing. Seven things fight back, two with tricks of
+their own — a bloodsucker that opens on you if you do not spot it, a controller that
+takes the turn off a weak mind.
 
 **Loot** the Zone has been at carries affixes, and how many it carries *is* its rarity:
 plain, touched, marked, warped, relic. A prefix goes in front of the name and a suffix
@@ -197,7 +198,7 @@ revisit only if we ever animate per-frame.
   **Art is ASCII-only** (no box-drawing / Unicode). That's a content rule, not a bug to
   fix; it also matches the "ASCII/ANSI" pillar. Ship a full monospace `.ttf` only if a
   scene genuinely needs more glyphs.
-- **Grid: 120×33** (native 16:9), settled in M1 — art up to 80 wide × 18 tall, centered,
+- **Grid: 120×33** (native 16:9), settled in M1 — art up to 120 wide × 18 tall, centered,
   then 2 description lines, the menu, the message line, the status row, and blank gap
   rows around the message, status and footer. The top-left translation is derived from
   window size × font advance, not a magic number.

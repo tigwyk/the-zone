@@ -688,7 +688,7 @@ fn combat_input(
         return;
     }
 
-    let menu = combat::menu(&combat, &run, &zone);
+    let menu = combat::menu(&combat);
     let n = menu.len();
     let mut changed = false;
 
@@ -717,8 +717,8 @@ fn combat_input(
         next_state.set(GameState::Area);
         return;
     }
-    // The menu shrinks as the bands change; keep the cursor on something real.
-    let n = combat::menu(&combat, &run, &zone).len();
+    // The menu shrinks as the AP runs low; keep the cursor on something real.
+    let n = combat::menu(&combat).len();
     combat.sel = combat.sel.min(n.saturating_sub(1));
     build_combat_grid(
         &mut grid,
@@ -1310,20 +1310,17 @@ mod playthrough {
             panic!("no row `{name}` on:\n{}", self.screen());
         }
 
-        /// Plays the fight out: shoot when the weapon reaches, otherwise close.
-        /// Panics rather than looping forever if combat will not resolve.
+        /// Plays the fight out: swing until something gives. Panics rather than
+        /// looping forever if combat will not resolve.
         fn fight(&mut self) -> &mut Self {
             for _ in 0..60 {
                 if self.state() != GameState::Combat {
                     return self;
                 }
-                // Shoot when the AP and the range allow, otherwise reposition.
                 if (22..27).any(|y| self.row(y).contains("Attack (")) {
                     self.choose("Attack");
-                } else if (22..27).any(|y| self.row(y).contains("Close In")) {
-                    self.choose("Close In");
                 } else {
-                    self.choose("Fall Back");
+                    self.choose("Flee");
                 }
             }
             panic!("the fight never ended:\n{}", self.screen());
@@ -1376,7 +1373,7 @@ mod playthrough {
         let mut sim = Sim::new();
         sim.roll_a_stalker();
         assert_eq!(sim.state(), GameState::Area);
-        sim.assert_shows("A camp on the Zone");
+        sim.assert_shows("A fire burns at the camp's heart");
         sim.assert_shows("Travel");
         sim.assert_shows("HP 38/38");
         sim.assert_shows("Day 1 06:00");
@@ -1414,7 +1411,7 @@ mod playthrough {
         // Something lives on the rim. Shoot it, and it drops something worth money.
         assert_eq!(sim.state(), GameState::Combat);
         sim.assert_shows("A Flesh comes at you");
-        sim.arm_with("pistol");
+        sim.arm_with("rifle");
         sim.fight();
         assert_eq!(sim.state(), GameState::Area);
         assert!(
@@ -1454,29 +1451,27 @@ mod playthrough {
     }
 
     #[test]
-    fn a_fight_is_fought_in_action_points_across_the_bands() {
+    fn a_fight_is_fought_in_action_points() {
         let mut sim = Sim::new();
         sim.roll_a_stalker();
         sim.arm_with("pistol");
         sim.walk_to_the_rim();
 
-        // A fight opens at far, with a full turn of AP (GDD §4: 5 + AGI/2).
+        // A fight opens with a full turn of AP (GDD §4: 5 + AGI/2), already in reach.
         assert_eq!(sim.state(), GameState::Combat);
         let ap = sim.combat().ap;
         assert_eq!(ap, 5 + sim.run().attrs[run::AGI] / 2);
         sim.assert_shows("Flesh");
-        sim.assert_shows("far");
         sim.assert_shows("AP 7");
+        assert!(!sim.shows("Close In"), "no distance to close");
 
-        // A pistol reaches across the field, and shooting costs 4 of those points.
-        // The turn is not over: 3 AP still buys a move.
+        // Shooting costs 3 of those points, and the menu never offers movement.
         sim.choose("Attack");
         assert_eq!(sim.combat().ap, ap - combat::AP_ATTACK);
-        sim.choose("Close In");
 
-        // Spending the last of it hands the turn over, and a Flesh can only bite,
-        // so it closes the rest of the distance itself.
-        assert_eq!(sim.combat().band, combat::Band::Melee, "you closed, then it did");
+        // Spending the last of it hands the turn over, and the Flesh bites straight
+        // away - there is no approach to burn its AP on.
+        sim.choose("Attack");
         assert_eq!(sim.combat().ap, ap, "a fresh turn comes back");
 
         // Rummaging mid-fight is the footer's Inventory, and it is not free.
@@ -1511,7 +1506,7 @@ mod playthrough {
             if sim.state() != GameState::Combat {
                 break;
             }
-            sim.choose("Close In");
+            sim.choose("Attack");
         }
         assert_eq!(sim.state(), GameState::GameOver);
         sim.assert_shows("THE ZONE IS STILL THERE");
@@ -1600,7 +1595,7 @@ mod playthrough {
         );
         // Neither of those rolls is an armour roll, so damage resistance is still
         // exactly the vest: an effect only moves the number it names.
-        assert_eq!(combat::armor_of(run, zone), 5);
+        assert_eq!(combat::armor_of(run, zone), 7);
     }
 
     #[test]

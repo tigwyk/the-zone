@@ -55,7 +55,7 @@ that the menu never lists. You die, someone else goes in, and the Zone is still 
 One fixed 120×33 character grid. No scrolling, no mouse.
 
 ```
-row  0–17  ART          the area scene, up to 80×18, centered; secrets in bold cyan
+row  0–17  ART          the area scene, up to 120×18, centered; secrets in bold cyan
 row  18    (blank)
 row  19–20 DESCRIPTION  two lines max, second person, present tense
 row  21    (blank)
@@ -288,24 +288,25 @@ bolts. You arrive at base camp on day 1 at 06:00.
 
 ## 8. Combat
 
-Turn-based, AP-driven, no grid. Distance is one of three **range bands**: melee, near,
-far. The scene art stays on screen; combatants are listed under it.
+Turn-based, AP-driven, no grid and no distance: everyone is already in reach, so there
+is nothing to close before the first swing. The scene art stays on screen; combatants
+are listed under it.
 
 | Action | AP | Notes |
 |---|---|---|
 | Attack | 3 | to-hit = weapon skill + modifiers |
 | Aimed attack | 6 | +20 to-hit, crits on ≤5 |
-| Move band | 3 | closer or farther by one band |
-| Use item | 4 | medkit, antirad, grenade |
-| Reload | 2 | |
-| Flee | all | Sneak check, or AGI vs. fastest enemy |
+| Use item | 4 | medkit, antirad |
+| Flee | all | Sneak check, or AGI vs. the fastest thing chasing you |
 
-To-hit modifiers: near 0, far −20, melee weapons only at melee band, target in cover
-−20, night −10 without light, over-encumbered −10, rads thresholds as attribute loss.
-Damage = weapon dice − armor. Crit ×2 and ignores armor.
+To-hit modifiers: night −10 without a light, rads thresholds as attribute loss.
+Damage = weapon dice − armor, and a crit doubles what got through the armor rather
+than ignoring it, so a suit matters against the big hits too.
 
-Enemies use a three-state machine: **approach** (close band), **attack**, **flee** at
-under 20% HP (bandits and Fleshes flee; Bloodsuckers and Controllers do not).
+Enemies use a two-state machine: **attack**, or **flee** at under 20% HP (bandits and
+Fleshes flee; Bloodsuckers and Controllers do not). A fleeing enemy bolts, and whether
+it clears is speed — its AP against your AGI — so a quick stalker can still run a
+wounded thing down. The player's own Flee is the same idea, with no distance involved.
 
 **Measured, over 3000 fights each** (`cargo test --release -- --ignored --nocapture
 balance`). Kill rate for a stalker in the starting kit, one who found the gun behind
@@ -313,13 +314,13 @@ the camp's hidden letter, one properly kitted, and one geared for the deep:
 
 | | knife | sawn-off | rifle + vest | marked sniper + suit |
 |---|---|---|---|---|
-| Blind Dog | 96% | 97% | 98% | 100% |
-| Flesh | 23% | 72% | 98% | 100% |
-| Bandit | 29% | 41% | 95% | 100% |
-| Zone Boar | 0% | 13% | 100% | 100% |
-| Bloodsucker | 0% | 0% | 72% | 100% |
-| Controller | 0% | 0% | 74% | 100% |
-| Pseudogiant | 0% | 0% | 5% | 97% |
+| Blind Dog | 75% | 86% | 97% | 100% |
+| Flesh | 20% | 52% | 91% | 100% |
+| Bandit | 12% | 44% | 88% | 100% |
+| Zone Boar | 0% | 9% | 100% | 100% |
+| Bloodsucker | 0% | 0% | 91% | 100% |
+| Controller | 0% | 0% | 94% | 100% |
+| Pseudogiant | 0% | 0% | 4% | 99% |
 
 The curve is meant to read that way: a knife answers a dog and nothing else, the deep
 mutants want real gear, and the Pseudogiant on the approach wants everything you have.
@@ -340,29 +341,26 @@ mutants, so everything in the Zone swings more often too. Two consequences, both
 accepted rather than overlooked:
 
 - **The deep roster hits much harder.** A bloodsucker's nine AP now buys three swings,
-  and a kitted stalker's odds against one fell from 52% to 28%. Splitting the cost so
-  only the player got the discount was measured and rejected: it took the knife from
-  losing to the first Flesh three times in four to *winning* three times in four, which
-  is a different and worse game.
-- **Wounded things still get away, but not for free.** A fleeing enemy gives up one
-  band a turn, and from far it first has to break away for a turn — so a gun that
-  wounded it at range gets one shot at its back before it clears. It used to be gone
-  the same turn from far, which made a better gun mean fewer kills; that one extra shot
-  lifted the sawn-off's kill rate on a bandit from 23% to 41%.
+  and a kitted stalker's odds against one are a coin flip rather than a sure thing.
+  Splitting the cost so only the player got the discount was measured and rejected: it
+  took the knife from losing to the first Flesh three times in four to *winning* three
+  times in four, which is a different and worse game.
+- **Wounded things flee, and whether they get away is speed.** A fleeing enemy bolts on
+  its next turn; its AP against your AGI decides if it clears or you head it off. No
+  band-by-band chase — a fast stalker runs a wounded thing down, a slow one watches it
+  go.
 
 **Roster order of implementation:** Bandit (human, gun), Flesh, Blind Dog, Bloodsucker
 (invisible until it attacks: PER check to act first), Controller (forces a will check
 each turn or lose the action), Pseudogiant (boss, guards the Room's approach).
 
-**Numbers not in the table above:** bare hands do 1d3 Melee. A fleeing enemy gives up
-one band per turn, and from far it breaks away for one turn before it is gone, so a
-wounded thing can be caught — or shot in the back. A turn ends when you can no longer
-afford the cheapest action (3 AP), and the menu only
-offers what your AP covers. Anomaly damage is the exception to armour: it ignores it.
+**Numbers not in the table above:** bare hands do 1d3 Melee. A turn ends when you can no
+longer afford the cheapest action (3 AP), and the menu only offers what your AP covers.
+Anomaly damage is the exception to armour: it ignores it.
 
-**In v1 so far:** the **Flesh** on the quarry rim (30 HP, 7 AP, skill 45, 2d6, armour 1,
-closes to melee, runs when hurt) drops a **Flesh Eye** worth 400 ₽. Weapons: a hunting
-knife (1d8 Melee, 150 ₽) and a PMm pistol (2d6 Small Guns, 900 ₽).
+**In v1 so far:** the **Flesh** on the quarry rim (26 HP, 7 AP, skill 45, 2d6, armour 1,
+runs when hurt) drops a **Flesh Eye** worth 400 ₽. Weapons: a hunting knife (1d8 Melee,
+150 ₽) and a PMm pistol (2d6 Small Guns, 900 ₽).
 
 Death ends the run. There is no unconsciousness.
 

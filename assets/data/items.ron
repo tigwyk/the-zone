@@ -31,12 +31,12 @@
     "sniper": Item(name: "Marksman Rifle", base: 5200, kind: Weapon(dice: (5, 8), skill: SmallGuns)),
 
     // ---- armour (6) ----
-    "jacket": Item(name: "Leather Jacket", base: 400, kind: Armor(2)),
-    "trench_coat": Item(name: "Oiled Trench Coat", base: 750, kind: Armor(3)),
-    "vest": Item(name: "Stalker Vest", base: 1400, kind: Armor(5)),
-    "duty_armour": Item(name: "Duty Body Armour", base: 3200, kind: Armor(7)),
-    "seva_suit": Item(name: "Sealed Suit", base: 6000, kind: Armor(9)),
-    "exo_frame": Item(name: "Exo Frame", base: 12000, kind: Armor(12)),
+    "jacket": Item(name: "Leather Jacket", base: 400, kind: Armor(4)),
+    "trench_coat": Item(name: "Oiled Trench Coat", base: 750, kind: Armor(5)),
+    "vest": Item(name: "Stalker Vest", base: 1400, kind: Armor(7)),
+    "duty_armour": Item(name: "Duty Body Armour", base: 3200, kind: Armor(9)),
+    "seva_suit": Item(name: "Sealed Suit", base: 6000, kind: Armor(11)),
+    "exo_frame": Item(name: "Exo Frame", base: 12000, kind: Armor(14)),
 
     // ---- light (2) ----
     "flashlight": Item(name: "Flashlight", base: 200, kind: Light),
