@@ -1,8 +1,9 @@
-//! The Zone — M5 (world and story).
+//! The Zone — M6 (the end).
 
 mod area;
 mod combat;
 mod dialogue;
+mod meta;
 mod quest;
 mod render;
 mod run;
@@ -16,6 +17,7 @@ use bevy::window::{PresentMode, WindowResolution};
 use area::{build_area_grid, Action, VendorStock, ZoneData};
 use combat::{build_combat_grid, Combat};
 use dialogue::{build_dialogue_grid, Dialogue};
+use meta::{build_memorial_grid, MetaProgress, SaveDir};
 use quest::{build_board_grid, build_journal_grid, Board};
 use render::{render_grid, TileGrid};
 use run::{Rng, RunState, BACKGROUNDS, REST_COST, REST_RADS, SKILL_NAMES, TAG_COUNT};
@@ -75,6 +77,7 @@ enum GameState {
     Jobs,
     Map,
     Journal,
+    Memorial,
     GameOver,
 }
 
@@ -127,10 +130,12 @@ fn add_game(app: &mut App) -> &mut App {
         .init_resource::<Combat>()
         .init_resource::<Dialogue>()
         .init_resource::<Board>()
+        .init_resource::<SaveDir>()
+        .init_resource::<MetaProgress>()
         .init_resource::<Creation>()
         .init_resource::<TileGrid>()
         .init_state::<GameState>()
-        .add_systems(Startup, enter_creation)
+        .add_systems(Startup, begin)
         .add_systems(OnEnter(GameState::CharacterCreation), enter_creation)
         .add_systems(OnEnter(GameState::Area), redraw_area)
         .add_systems(OnEnter(GameState::Inventory), enter_inventory)
@@ -140,6 +145,7 @@ fn add_game(app: &mut App) -> &mut App {
         .add_systems(OnEnter(GameState::Jobs), redraw_board)
         .add_systems(OnEnter(GameState::Map), enter_map)
         .add_systems(OnEnter(GameState::Journal), enter_journal)
+        .add_systems(OnEnter(GameState::Memorial), enter_memorial)
         .add_systems(OnEnter(GameState::GameOver), enter_gameover)
         .add_systems(
             Update,
@@ -153,6 +159,7 @@ fn add_game(app: &mut App) -> &mut App {
                 board_input.run_if(in_state(GameState::Jobs)),
                 map_input.run_if(in_state(GameState::Map)),
                 journal_input.run_if(in_state(GameState::Journal)),
+                memorial_input.run_if(in_state(GameState::Memorial)),
                 gameover_input.run_if(in_state(GameState::GameOver)),
             )
                 .in_set(GameInput),
@@ -163,7 +170,7 @@ fn main() {
     let mut app = App::new();
     app.add_plugins(DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window {
-            title: "The Zone — M5".into(),
+            title: "The Zone — M6".into(),
             resolution: WindowResolution::new(1280, 720).with_scale_factor_override(1.0),
             present_mode: PresentMode::AutoVsync,
             ..default()
@@ -182,8 +189,45 @@ fn setup(mut commands: Commands) {
 
 // ---- character creation ----
 
-fn enter_creation(mut grid: ResMut<TileGrid>, c: Res<Creation>) {
-    build_creation_grid(&mut grid, c.phase, c.sel, c.background, &c.tags);
+fn enter_creation(
+    mut grid: ResMut<TileGrid>,
+    c: Res<Creation>,
+    meta: Res<MetaProgress>,
+    message: Res<MessageLine>,
+) {
+    build_creation_grid(&mut grid, &meta, c.phase, c.sel, c.background, &c.tags, &message.0);
+}
+
+/// First frame: read the memorial, and pick up a suspended run if there is one.
+/// Reading the suspend file spends it, so there is exactly one way back in (GDD §10).
+#[allow(clippy::too_many_arguments)]
+fn begin(
+    dir: Res<SaveDir>,
+    mut meta: ResMut<MetaProgress>,
+    mut run: ResMut<RunState>,
+    mut area: ResMut<CurrentArea>,
+    mut clock: ResMut<GameClock>,
+    mut fields: ResMut<Fields>,
+    mut stock: ResMut<VendorStock>,
+    mut rng: ResMut<Rng>,
+    mut message: ResMut<MessageLine>,
+    mut next_state: ResMut<NextState<GameState>>,
+    grid: ResMut<TileGrid>,
+    c: Res<Creation>,
+) {
+    *meta = MetaProgress::load(&dir);
+    if let Some(save) = meta::resume(&dir) {
+        *run = save.run;
+        area.0 = save.area;
+        *clock = save.clock;
+        fields.0 = save.fields;
+        stock.0 = save.stock;
+        *rng = save.rng;
+        message.0 = "You pick up where you put it down.".into();
+        next_state.set(GameState::Area);
+        return;
+    }
+    enter_creation(grid, c, meta.into(), message.into());
 }
 
 fn creation_input(
@@ -196,6 +240,7 @@ fn creation_input(
     mut rng: ResMut<Rng>,
     zone: Res<ZoneData>,
     area: Res<CurrentArea>,
+    meta: Res<MetaProgress>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
     let n = if c.phase == 0 { BACKGROUNDS.len() } else { SKILL_NAMES.len() };
@@ -211,6 +256,11 @@ fn creation_input(
     }
     if keys.just_pressed(KeyCode::Enter) {
         if c.phase == 0 {
+            if !meta.unlocked(c.sel) {
+                message.0 = "Nobody with that history has come back yet.".into();
+                build_creation_grid(&mut grid, &meta, c.phase, c.sel, c.background, &c.tags, &message.0);
+                return;
+            }
             c.background = c.sel;
             c.phase = 1;
             c.sel = 0;
@@ -220,7 +270,12 @@ fn creation_input(
             let sel = c.sel;
             c.tags.push(sel);
             if c.tags.len() == TAG_COUNT {
-                *run = RunState::roll(c.background, &c.tags);
+                *run = RunState::roll(c.background, &c.tags, &mut rng);
+                // A quarter of the last stalker's standing came with you (GDD §10).
+                for (faction, carried) in &meta.rep {
+                    let now = run.rep_of(faction);
+                    run.rep.insert(faction.clone(), (now + carried).clamp(-100, 100));
+                }
                 clock.schedule(&run, &mut rng);
                 reveal_secrets(&area.0, &mut run, &zone, &mut rng);
                 run.discovered.insert(area.0.clone());
@@ -233,7 +288,7 @@ fn creation_input(
     }
 
     if changed {
-        build_creation_grid(&mut grid, c.phase, c.sel, c.background, &c.tags);
+        build_creation_grid(&mut grid, &meta, c.phase, c.sel, c.background, &c.tags, &message.0);
     }
 }
 
@@ -302,7 +357,9 @@ struct Act<'w> {
     combat: ResMut<'w, Combat>,
     dialogue: ResMut<'w, Dialogue>,
     board: ResMut<'w, Board>,
+    meta: ResMut<'w, MetaProgress>,
     zone: Res<'w, ZoneData>,
+    dir: Res<'w, SaveDir>,
 }
 
 fn menu_input(
@@ -310,6 +367,7 @@ fn menu_input(
     mut sel: ResMut<MenuSelection>,
     mut grid: ResMut<TileGrid>,
     mut act: Act,
+    mut exit: MessageWriter<AppExit>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
     if keys.just_pressed(KeyCode::Tab) {
@@ -322,6 +380,24 @@ fn menu_input(
     }
     if keys.just_pressed(KeyCode::F3) {
         next_state.set(GameState::Journal);
+        return;
+    }
+    if keys.just_pressed(KeyCode::F5) {
+        // GDD §10: save and quit. Not reachable from a fight, which has no way out.
+        let saved = meta::suspend(
+            &act.dir,
+            &act.run,
+            &act.area.0,
+            &act.clock,
+            &act.fields,
+            &act.stock,
+            &act.rng,
+        );
+        if saved {
+            exit.write(AppExit::Success);
+        } else {
+            act.message.0 = "The Zone will not let you put it down here.".into();
+        }
         return;
     }
 
@@ -424,6 +500,21 @@ fn perform(action: &Action, act: &mut Act, next_state: &mut NextState<GameState>
             act.message.0.clear();
             next_state.set(GameState::Jobs);
         }
+        Action::Memorial => {
+            act.message.0.clear();
+            next_state.set(GameState::Memorial);
+        }
+        Action::End(id) => {
+            // The Room grants it, and that is the end of this stalker (GDD §9).
+            let ending = act.zone.endings[id].clone();
+            let (name, text) = meta::resolve(&ending, &act.run, &act.zone, &mut act.rng);
+            let meta = &mut *act.meta;
+            meta::bank(meta, &act.run, &act.dir, &name, &text);
+            act.run.death = Some(text);
+            act.run.ending = Some(name);
+            next_state.set(GameState::GameOver);
+            return false;
+        }
         Action::Scan => {
             let a = anomaly.as_ref().expect("Scan outside a field");
             act.message.0 = scan(&here, a, &mut act.run, &act.zone, &mut act.fields, &mut act.rng);
@@ -474,6 +565,9 @@ fn perform(action: &Action, act: &mut Act, next_state: &mut NextState<GameState>
     }
 
     if check_death(&mut act.run) {
+        let cause = act.run.death.clone().unwrap_or_default();
+        let meta = &mut *act.meta;
+        meta::bank(meta, &act.run, &act.dir, &cause, &act.message.0);
         next_state.set(GameState::GameOver);
         return moved.is_some();
     }
@@ -809,6 +903,47 @@ fn journal_input(
     }
 }
 
+fn enter_memorial(
+    mut cursor: ResMut<Cursor>,
+    mut grid: ResMut<TileGrid>,
+    meta: Res<MetaProgress>,
+    message: Res<MessageLine>,
+) {
+    cursor.0 = 0;
+    build_memorial_grid(&mut grid, &meta, 0, &message.0);
+}
+
+fn memorial_input(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut cursor: ResMut<Cursor>,
+    mut grid: ResMut<TileGrid>,
+    mut message: ResMut<MessageLine>,
+    meta: Res<MetaProgress>,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    if keys.just_pressed(KeyCode::Escape) {
+        message.0.clear();
+        next_state.set(GameState::Area);
+        return;
+    }
+
+    let n = meta.memorial.len();
+    let mut changed = false;
+    if n > 0 {
+        if keys.just_pressed(KeyCode::ArrowUp) {
+            cursor.0 = (cursor.0 + n - 1) % n;
+            changed = true;
+        }
+        if keys.just_pressed(KeyCode::ArrowDown) {
+            cursor.0 = (cursor.0 + 1) % n;
+            changed = true;
+        }
+    }
+    if changed {
+        build_memorial_grid(&mut grid, &meta, cursor.0, &message.0);
+    }
+}
+
 // ---- inventory ----
 
 fn inventory_input(
@@ -974,18 +1109,35 @@ mod playthrough {
 
     struct Sim {
         app: App,
+        #[allow(dead_code)] // held so the temp save directory outlives the app
+        saves: std::path::PathBuf,
     }
 
     impl Sim {
         /// A fresh app on a fixed seed, wound forward to the creation screen.
         fn new() -> Self {
+            Sim::with_saves(&format!("run-{}", std::process::id()))
+        }
+
+        /// As `new`, but on a named save directory, so a test can watch a stalker
+        /// die and then check what the next one inherits. Never the player's own.
+        fn with_saves(tag: &str) -> Self {
+            let saves = std::env::temp_dir().join(format!("the-zone-test-{tag}"));
+            let _ = std::fs::remove_dir_all(&saves);
+            Sim::reopen(saves)
+        }
+
+        /// Opens a fresh app over an existing save directory, the way starting the
+        /// game again would.
+        fn reopen(saves: std::path::PathBuf) -> Self {
             let mut app = App::new();
             app.add_plugins((MinimalPlugins, StatesPlugin));
             app.init_resource::<ButtonInput<KeyCode>>();
             add_game(&mut app);
             app.insert_resource(Rng::new(20260905));
+            app.insert_resource(SaveDir(saves.clone()));
             app.update();
-            Sim { app }
+            Sim { app, saves }
         }
 
         /// One keypress, then an idle frame so the state transition it asked for
@@ -1115,6 +1267,29 @@ mod playthrough {
                 }
             }
             panic!("the fight never ended:\n{}", self.screen());
+        }
+
+        fn meta(&self) -> &MetaProgress {
+            self.app.world().resource::<MetaProgress>()
+        }
+
+        /// Walks the whole route in: camp, road, field, across it, then the tunnel
+        /// the Room opens for anyone who stands high enough with somebody.
+        fn walk_to_the_room(&mut self) -> &mut Self {
+            self.arm_with("pistol");
+            self.walk_to_the_rim();
+            if self.state() == GameState::Combat {
+                self.fight();
+            }
+            self.run_mut().rep.insert("loners".into(), 60);
+            // Standing is read on entry, so step out and back to light the letter.
+            self.choose("Back through the field");
+            self.choose("Push Through");
+            if self.state() == GameState::Combat {
+                self.fight();
+            }
+            assert!(self.run().is_revealed("quarry", 'T'), "the tunnel:\n{}", self.screen());
+            self.press(KeyCode::KeyT)
         }
 
         /// Background 0 (Loner), the first three skills tagged.
@@ -1279,6 +1454,105 @@ mod playthrough {
     }
 
     #[test]
+    fn the_room_is_reached_by_standing_and_answers_what_the_run_built() {
+        let mut sim = Sim::with_saves("room");
+        sim.roll_a_stalker();
+        sim.walk_to_the_room();
+        sim.assert_shows("Light comes off the far wall");
+
+        sim.choose("Step into the light");
+        assert_eq!(sim.state(), GameState::Dialogue);
+        sim.assert_shows("The light does not flicker");
+
+        // The short list is built from the run (GDD 9). This one killed a Flesh and
+        // is carrying the pay for it, so those wishes are open; the Monolith one is
+        // not, because this stalker has never listened to them.
+        sim.assert_shows("[killed a Flesh]");
+        sim.assert_shows("Make me whole");
+        sim.choose_listed("[Monolith 50]");
+        sim.assert_shows("not the one to make that argument");
+
+        // Asking ends the run, whichever way the Zone reads it.
+        sim.choose_listed("Make me whole");
+        assert_eq!(sim.state(), GameState::GameOver);
+        sim.assert_shows("The wish to be whole");
+        sim.assert_shows("THE ZONE IS STILL THERE");
+        assert_eq!(sim.meta().memorial.len(), 1, "every ending writes a memorial entry");
+        assert!(sim.meta().unlocked(2), "reaching the centre earns the Ecologist");
+    }
+
+    #[test]
+    fn a_dead_stalker_leaves_something_for_the_next_one() {
+        let saves = std::env::temp_dir().join("the-zone-test-permadeath");
+        let _ = std::fs::remove_dir_all(&saves);
+
+        let mut sim = Sim::reopen(saves.clone());
+        sim.roll_a_stalker();
+        let name = sim.run().name.clone();
+        sim.run_mut().rep.insert("loners".into(), 80);
+        sim.run_mut().rads = sim::RAD_DEATH;
+        sim.choose("Travel");
+        assert_eq!(sim.state(), GameState::GameOver);
+        sim.assert_shows(&name);
+
+        // Start the game again. The Zone remembers, at a quarter rate (GDD 10).
+        let mut next = Sim::reopen(saves);
+        assert_eq!(next.meta().memorial.len(), 1);
+        assert_eq!(next.meta().rep["loners"], 20);
+        next.roll_a_stalker();
+        // 20 from being a Loner, plus the 20 the last one left behind.
+        assert_eq!(next.run().rep_of("loners"), 40);
+        assert_ne!(next.run().name, "", "the new one has their own name");
+
+        // And the camp carries the memorial, so you can read who went before.
+        next.choose("The memorial");
+        assert_eq!(next.state(), GameState::Memorial);
+        next.assert_shows("THE MEMORIAL");
+        next.assert_shows(&name);
+        next.assert_shows("Radiation");
+        next.press(KeyCode::Escape);
+        assert_eq!(next.state(), GameState::Area);
+    }
+
+    #[test]
+    fn a_locked_background_stays_locked_until_it_is_earned() {
+        let mut sim = Sim::with_saves("locked");
+        sim.assert_shows("Ecologist (locked)");
+        // Down twice to the Ecologist, then try to take it.
+        sim.press(KeyCode::ArrowDown).press(KeyCode::ArrowDown);
+        sim.press(KeyCode::Enter);
+        assert_eq!(sim.state(), GameState::CharacterCreation, "still choosing");
+        sim.assert_shows("Nobody with that history has come back yet");
+    }
+
+    #[test]
+    fn suspending_puts_the_run_down_and_picking_it_up_spends_the_file() {
+        let saves = std::env::temp_dir().join("the-zone-test-suspend");
+        let _ = std::fs::remove_dir_all(&saves);
+
+        let mut sim = Sim::reopen(saves.clone());
+        sim.roll_a_stalker();
+        sim.choose("Travel"); // out to the road, so there is something to restore
+        sim.run_mut().rubles = 1234;
+        let name = sim.run().name.clone();
+        let minutes = sim.run().minutes;
+        sim.press(KeyCode::F5);
+
+        // Starting again drops you straight back where you stood.
+        let mut back = Sim::reopen(saves.clone());
+        assert_eq!(back.state(), GameState::Area);
+        back.assert_shows("A dirt road between the camp and the wastes");
+        assert_eq!(back.run().rubles, 1234);
+        assert_eq!(back.run().name, name);
+        assert_eq!(back.run().minutes, minutes);
+        assert!(back.run().discovered.contains("road"));
+
+        // The file is spent. There is no reload (GDD 10).
+        let again = Sim::reopen(saves);
+        assert_eq!(again.state(), GameState::CharacterCreation);
+    }
+
+    #[test]
     fn grisha_will_not_hear_an_argument_you_cannot_make() {
         let mut sim = Sim::new();
         sim.roll_a_stalker();
@@ -1438,7 +1712,7 @@ mod playthrough {
 
         // Radiation kills at 1000, and the next action is the one that finds out.
         sim.run_mut().rads = sim::RAD_DEATH;
-        sim.choose("Look");
+        sim.choose("Travel");
         assert_eq!(sim.state(), GameState::GameOver);
         sim.assert_shows("THE ZONE IS STILL THERE");
         sim.assert_shows("Radiation");

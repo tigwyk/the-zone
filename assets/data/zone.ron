@@ -12,7 +12,7 @@ Zone(
                 ("Trade", Trade("trader")),
                 ("The bar", Travel("bar")),
                 ("Rest", Rest),
-                ("Look", Say("The fire pops. The lantern gutters.")),
+                ("The memorial", Memorial),
             ],
             secrets: {
                 'D': Secret(action: Travel("hatch")),
@@ -71,6 +71,16 @@ Zone(
             ],
             secrets: {},
         ),
+        "room": Area(
+            name: "The Room",
+            art: "room",
+            shelter: true,
+            menu: [
+                ("Step into the light", Talk("room")),
+                ("Turn back up the tunnel", Travel("quarry")),
+            ],
+            secrets: {},
+        ),
         "field": Area(
             name: "The Whirligig Field",
             art: "field",
@@ -107,6 +117,9 @@ Zone(
             secrets: {
                 'S': Secret(action: Say("The log was right. The crate holds two medkits and a bolt tin."),
                             gate: Some(Flag("read_the_log"))),
+                // GDD 9: the route to the centre opens for whoever stands highest
+                // with somebody. It does not care which somebody.
+                'T': Secret(action: Travel("room"), gate: Some(AnyRep(50))),
             },
         ),
     },

@@ -28,7 +28,9 @@ pub(crate) fn action_minutes(action: &Action) -> u32 {
         | Action::Trade(_)
         | Action::SetFlag(_)
         | Action::Talk(_)
-        | Action::Jobs(_) => 0,
+        | Action::Jobs(_)
+        | Action::Memorial
+        | Action::End(_) => 0,
     }
 }
 
@@ -46,7 +48,7 @@ pub(crate) const EMISSION_WARNING: u32 = 60;
 const EMISSION_RADS: i32 = 400;
 
 /// Minutes at which the next emission hits. Rolled at run start and after each one.
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct GameClock {
     pub next_emission: u32,
 }
@@ -193,7 +195,7 @@ pub(crate) fn check_death(run: &mut RunState) -> bool {
 // ---- anomaly fields (GDD §6) ----
 
 /// What this run knows about one field. Cleared by an emission.
-#[derive(Default, Clone)]
+#[derive(Default, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct FieldState {
     pub scanned: bool,
     /// An artifact is visible and can be taken.
@@ -363,6 +365,7 @@ pub(crate) fn reveal_secrets(area_id: &str, run: &mut RunState, zone: &ZoneData,
             None => true,
             Some(Gate::Flag(flag)) => run.flags.contains(flag),
             Some(Gate::Rep(faction, at_least)) => run.rep_of(faction) >= *at_least,
+            Some(Gate::AnyRep(at_least)) => run.rep.values().any(|r| r >= at_least),
             Some(Gate::Check(skill, modifier)) => {
                 if !run.gate_rolled.insert(key.clone()) {
                     continue; // already rolled this run, one way or the other
@@ -395,8 +398,9 @@ mod tests {
                 .map(|(id, v)| (id.clone(), v.stock.clone()))
                 .collect(),
         );
-        let run = RunState::roll(0, &[8, 9, 4]);
-        (zone, run, Rng::new(7), Fields::default(), GameClock::default(), stock)
+        let mut rng = Rng::new(7);
+        let run = RunState::roll(0, &[8, 9, 4], &mut rng);
+        (zone, run, rng, Fields::default(), GameClock::default(), stock)
     }
 
     #[test]
@@ -410,7 +414,7 @@ mod tests {
         assert_eq!(rad_hp_per_hour(600), 1);
         assert_eq!(rad_hp_per_hour(800), 2);
 
-        let mut run = RunState::roll(0, &[0, 1, 2]);
+        let mut run = RunState::roll(0, &[0, 1, 2], &mut Rng::new(1));
         run.rads = RAD_DEATH;
         assert!(check_death(&mut run));
     }

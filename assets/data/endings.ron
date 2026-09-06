@@ -1,0 +1,34 @@
+// GDD 9: every wish has a literal reading and a corrupted one. Which you get
+// depends on Monolith standing and a hidden LCK check.
+{
+    "riches": Ending(
+        name: "The wish for money",
+        literal: "You walk out at dawn with more than you carried in, and you keep walking. Somewhere south there is a town that has never heard of the Zone, and a house in it with your name on the deed. You never go back. That is the whole of it, and it is enough.",
+        corrupted: "You walk out at dawn very rich. The notes are perfect. Every one of them is perfect in exactly the same way, down to the serial, and the first cashier who fans them out goes very quiet. They find you three months later, still counting.",
+    ),
+    "health": Ending(
+        name: "The wish to be whole",
+        literal: "The ache goes out of your joints like water out of a boot. The counter at your belt ticks down to nothing and stays there. You are forty again, and you are outside, and the wind is only wind.",
+        corrupted: "Nothing hurts. Nothing has hurt since the light. Not the cold, not the burn on your hand, not the thing in the reeds that got two of your fingers before you noticed it was there. You are very healthy. You will be healthy for a long time.",
+    ),
+    "remembered": Ending(
+        name: "The wish to be remembered",
+        literal: "They put your name on the plank at the camp above the others, and for a while every stalker who comes through reads it and asks. That is not nothing. Most of us go in the ground under a number.",
+        corrupted: "They remember you. They remember you at the checkpoints and in the bar and in the long grass at night, and what they remember is a warning, and mothers in the outer villages use your name to make children come inside before dark.",
+    ),
+    "power": Ending(
+        name: "The wish for strength",
+        literal: "Whatever the Zone put in your hands, it stays there. The mutants on the rim go quiet when you come down the track. You are not the biggest thing in here, but you are no longer prey, and you sleep through the night.",
+        corrupted: "You are strong. You are so strong that the patrols stop firing and start running, and after a while the running is the part you look forward to. The last human thought you have is that you should turn back. You do not turn back.",
+    ),
+    "refuse": Ending(
+        name: "You did not ask",
+        literal: "You stand in the light with your mouth shut. Whatever is in here has been granting wishes to men who did not know what they wanted since before your grandfather, and you find you would rather owe it nothing. You turn around. The walk out is long, and it is yours.",
+        corrupted: "You stand in the light with your mouth shut, and something in you asks anyway, in a voice you have not used since you were small, for a thing you would never say aloud. You do not find out what it was until much later.",
+    ),
+    "monolith": Ending(
+        name: "The Monolith takes you",
+        literal: "You do not have to decide anything ever again. The voice that has been under everything since the checkpoint resolves into words, and the words are kind, and you set down your rifle and go to stand with the others who are already there.",
+        corrupted: "You do not have to decide anything ever again. There is no voice. There was never a voice. There is only the light, and the shape it makes of you, and the next stalker who walks in here will see you standing at the wall and think you are part of it.",
+    ),
+}

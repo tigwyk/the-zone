@@ -216,7 +216,7 @@ mod tests {
 
     fn fixture() -> (ZoneData, RunState) {
         let zone = load_zone(Path::new("assets/data"));
-        (zone, RunState::roll(0, &[8, 9, 4]))
+        (zone, RunState::roll(0, &[8, 9, 4], &mut crate::run::Rng::new(3)))
     }
 
     #[test]

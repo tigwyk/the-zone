@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use bevy::prelude::*;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 // ---- attributes & skills (GDD §4) ----
 
@@ -15,6 +15,7 @@ pub(crate) const END: usize = 2;
 pub(crate) const CHA: usize = 3;
 pub(crate) const INT: usize = 4;
 pub(crate) const AGI: usize = 5;
+pub(crate) const LCK: usize = 6;
 
 pub(crate) const ATTR_NAMES: [&str; 7] = ["STR", "PER", "END", "CHA", "INT", "AGI", "LCK"];
 
@@ -61,6 +62,13 @@ impl Skill {
 const ATTR_BASE: i32 = 5;
 const TAG_BONUS: i32 = 15;
 pub(crate) const TAG_COUNT: usize = 3;
+
+/// Nobody uses their own name in the Zone. Picked at creation so the memorial has
+/// something to carve (GDD §10).
+const NAMES: [&str; 12] = [
+    "Sparrow", "Grim", "Tinman", "Kettle", "Pike", "Ash",
+    "Cricket", "Mole", "Rook", "Fen", "Bricks", "Marsh",
+];
 
 // ---- backgrounds (GDD §4) ----
 
@@ -115,8 +123,9 @@ pub(crate) const REST_MINUTES: u32 = 8 * 60;
 pub(crate) const REST_COST: u32 = 50;
 pub(crate) const REST_RADS: i32 = 100;
 
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Serialize, Deserialize, Clone)]
 pub(crate) struct RunState {
+    pub name: String,
     pub background: usize,
     pub attrs: [i32; 7],
     pub skills: [i32; 10],
@@ -143,12 +152,13 @@ pub(crate) struct RunState {
     pub kills: HashSet<String>,
     pub quests_taken: HashSet<String>,
     pub quests_done: HashSet<String>,
-    /// Set once, when the run ends.
+    /// Set once, when the run ends: how it ended, and which ending if it was the Room.
     pub death: Option<String>,
+    pub ending: Option<String>,
 }
 
 impl RunState {
-    pub fn roll(background: usize, tags: &[usize]) -> Self {
+    pub fn roll(background: usize, tags: &[usize], rng: &mut Rng) -> Self {
         let bg = &BACKGROUNDS[background];
         let mut attrs = [ATTR_BASE; 7];
         attrs[bg.attr.0] += bg.attr.1;
@@ -168,6 +178,7 @@ impl RunState {
 
         let max_hp = 20 + 3 * attrs[END];
         RunState {
+            name: NAMES[rng.roll(NAMES.len() as u32) as usize - 1].to_string(),
             background,
             attrs,
             skills,
@@ -189,6 +200,7 @@ impl RunState {
             quests_taken: HashSet::new(),
             quests_done: HashSet::new(),
             death: None,
+            ending: None,
         }
     }
 
@@ -244,7 +256,7 @@ impl RunState {
 
 /// xorshift64. `ponytail:` a dice RNG is six lines; pull in `rand` only if we ever
 /// need distributions beyond "roll a die".
-#[derive(Resource)]
+#[derive(Resource, Serialize, Deserialize, Clone)]
 pub(crate) struct Rng {
     state: u64,
     #[allow(dead_code)] // read by the suspend file in M6 so a run can be replayed
@@ -396,7 +408,7 @@ mod tests {
         // Practise a tagged skill under 50 (1 in 2) and an untagged one (1 in 4);
         // both must climb, and the tagged one must climb faster.
         let mut rng = Rng::new(99);
-        let mut run = RunState::roll(0, &[2, 3, 4]);
+        let mut run = RunState::roll(0, &[2, 3, 4], &mut rng);
         run.skills[2] = 20;
         run.skills[0] = 20;
         for _ in 0..400 {
@@ -413,7 +425,7 @@ mod tests {
 
         // Only a success teaches. At hopeless odds the only teacher left is the
         // 1-in-100 crit, so the skill barely moves instead of not moving at all.
-        let mut run = RunState::roll(0, &[0, 1, 2]);
+        let mut run = RunState::roll(0, &[0, 1, 2], &mut rng);
         let before = run.skills[5];
         for _ in 0..200 {
             check_skill(&mut run, 5, -1000, 1, &mut rng);
@@ -453,7 +465,7 @@ mod tests {
 
     #[test]
     fn roll_applies_background_tags_and_kit() {
-        let r = RunState::roll(0, &[8, 9, 4]); // Loner; tag Stalker Lore, Barter, Medicine
+        let r = RunState::roll(0, &[8, 9, 4], &mut Rng::new(1)); // Loner; Lore, Barter, Medicine
         assert_eq!(r.attrs[END], 6);
         assert_eq!(r.max_hp, 38);
         assert_eq!(r.hp, r.max_hp);
@@ -462,11 +474,12 @@ mod tests {
         assert_eq!(r.rep_of("loners"), 20);
         assert_eq!(r.day(), 1);
         assert_eq!(r.clock(), "06:00");
+        assert!(!r.name.is_empty(), "the memorial needs something to carve");
     }
 
     #[test]
     fn take_item_is_all_or_nothing_and_unequips() {
-        let mut r = RunState::roll(0, &[0, 1, 2]);
+        let mut r = RunState::roll(0, &[0, 1, 2], &mut Rng::new(1));
         r.add_item("pistol", 1);
         r.weapon = Some("pistol".into());
         assert!(!r.take_item("pistol", 2));

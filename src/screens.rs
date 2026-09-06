@@ -3,8 +3,9 @@
 
 use crate::area::{ItemKind, VendorData, VendorStock, ZoneData, MESSAGE_ROW};
 use crate::render::{TileGrid, PALETTE};
+use crate::meta::MetaProgress;
 use crate::run::{
-    price, RunState, ATTR_NAMES, BACKGROUNDS, BARTER, SKILL_NAMES, TAG_COUNT,
+    price, Rng, RunState, ATTR_NAMES, BACKGROUNDS, BARTER, SKILL_NAMES, TAG_COUNT,
 };
 use crate::sim::{artifact_rads_per_hour, attr, is_night, GameClock};
 
@@ -80,17 +81,34 @@ fn row(grid: &mut TileGrid, x: usize, y: usize, selected: bool, s: &str) {
 
 // ---- character creation ----
 
-pub(crate) fn build_creation_grid(grid: &mut TileGrid, phase: usize, sel: usize, bg: usize, tags: &[usize]) {
+pub(crate) fn build_creation_grid(
+    grid: &mut TileGrid,
+    meta: &MetaProgress,
+    phase: usize,
+    sel: usize,
+    bg: usize,
+    tags: &[usize],
+    message: &str,
+) {
     grid.clear();
     title(grid, "THE ZONE - a new stalker");
+    grid.text(0, MESSAGE_ROW, message, PALETTE.desc, false);
 
     let (preview_bg, preview_tags) = if phase == 0 { (sel, &[][..]) } else { (bg, tags) };
-    let preview = RunState::roll(preview_bg, preview_tags);
+    // A throwaway die, so drawing the preview does not spend the run's own rolls.
+    let preview = RunState::roll(preview_bg, preview_tags, &mut Rng::new(1));
 
     if phase == 0 {
         grid.text(0, 2, "Choose a background:", PALETTE.desc, false);
         for (i, b) in BACKGROUNDS.iter().enumerate() {
-            row(grid, 0, LIST_ROW + i, i == sel, b.name);
+            // A locked background still shows: it is something to go and earn.
+            if meta.unlocked(i) {
+                row(grid, 0, LIST_ROW + i, i == sel, b.name);
+            } else {
+                let fg = if i == sel { PALETTE.grey } else { PALETTE.dim };
+                grid.text(0, LIST_ROW + i, if i == sel { "> " } else { "  " }, fg, false);
+                grid.text(2, LIST_ROW + i, &format!("{} (locked)", b.name), fg, false);
+            }
         }
         // Below the preview column, which owns everything from column 44.
         grid.text(0, BLURB_ROW, BACKGROUNDS[sel].blurb, PALETTE.desc, false);
@@ -447,16 +465,26 @@ pub(crate) fn build_map_grid(
 /// This screen exists so a dead stalker stops playing.
 pub(crate) fn build_gameover_grid(grid: &mut TileGrid, run: &RunState, cause: &str) {
     grid.clear();
-    grid.text(0, 6, "THE ZONE IS STILL THERE", PALETTE.red, true);
-    grid.text(0, 8, cause, PALETTE.desc, false);
+    match &run.ending {
+        Some(name) => {
+            grid.text(0, 4, name, PALETTE.cyan, true);
+            grid.text(0, 6, "THE ZONE IS STILL THERE", PALETTE.red, true);
+        }
+        None => grid.text(0, 6, "THE ZONE IS STILL THERE", PALETTE.red, true),
+    }
+    for (i, line) in wrap(cause, 76).iter().enumerate() {
+        grid.text(0, 8 + i, line, PALETTE.desc, false);
+    }
     let epitaph = format!(
-        "{}, {} days in, {} rads, {} RU on you.",
+        "{}, the {}. {} days in, {} rads, {} RU on you.",
+        run.name,
         BACKGROUNDS[run.background].name,
         run.day(),
         run.rads,
         run.rubles
     );
-    grid.text(0, 10, &epitaph, PALETTE.grey, false);
+    grid.text(0, 16, &epitaph, PALETTE.grey, false);
+    grid.text(0, 18, "The next one will read your name at the camp.", PALETTE.dim, false);
     hint(grid, "Esc quit");
 }
 
@@ -477,7 +505,7 @@ mod tests {
                 .map(|(id, v)| (id.clone(), v.stock.clone()))
                 .collect(),
         );
-        (zone, stock, RunState::roll(0, &[8, 9, 4]))
+        (zone, stock, RunState::roll(0, &[8, 9, 4], &mut crate::run::Rng::new(3)))
     }
 
     #[test]
@@ -537,8 +565,8 @@ mod tests {
         let clock = GameClock::default();
         let mut fields = crate::sim::Fields::default();
 
-        build_creation_grid(&mut grid, 0, 3, 0, &[]);
-        build_creation_grid(&mut grid, 1, 9, 2, &[8, 9]);
+        build_creation_grid(&mut grid, &MetaProgress::default(), 0, 3, 0, &[], "");
+        build_creation_grid(&mut grid, &MetaProgress::default(), 1, 9, 2, &[8, 9], "");
         for id in zone.areas.keys() {
             build_area_grid(&mut grid, &zone, &run, &clock, &fields, id, 0, "test");
         }

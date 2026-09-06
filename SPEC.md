@@ -28,6 +28,7 @@ src/sim.rs         clock, radiation, emissions, anomaly fields, gates    (M3)
 src/combat.rs      bands, AP turns, the enemy machine, the combat screen (M4)
 src/dialogue.rs    NPCs, menu-option dialogue, the dialogue screen        (M5)
 src/quest.rs       jobs, standing, the job board and journal screens      (M5)
+src/meta.rs        memorial, unlocks, suspend, endings, the save files    (M6)
 assets/data/       all game content — see §5
 PLAN.md GDD.md SPEC.md
 ```
@@ -62,6 +63,12 @@ Every screen in the game is a `build_grid`-style function that writes into the o
 - **All prices go through `price(item, vendor, run, buying: bool) -> u32`.**
 - **All standing changes go through `quest::adjust_rep`**, which applies GDD §9's
   rival spill. Never write `run.rep` directly outside character creation.
+- **A run only ends through `meta::bank`**, which writes the memorial entry, banks a
+  quarter of the standing and the lore, works out what the next stalker earned, and
+  deletes the suspend file. Death and an ending both go through it.
+- **Save files live in `SaveDir`**, a resource defaulting to the platform data
+  directory. It is a resource so tests can point it at a temp dir; a test that ends a
+  run and does not override it is a bug.
 - **The area network is derived, never tabulated.** `area::exits` reads an area's own
   Travel actions, secret exits and anomaly far side. Adding a connection means adding
   the menu entry, and the map follows.
@@ -149,6 +156,8 @@ Zone(
 | `Jobs(FactionId)` | M5 | enter Jobs state (that faction's board) |
 | `Scan`, `ThrowBolt`, `PushThrough`, `TakeArtifact` | M3 | anomaly field verbs |
 | `SetFlag(String)` | M3 | quest/secret flag |
+| `Memorial` | M6 | show the fallen |
+| `End(EndingId)` | M6 | end the run on that ending; nothing follows it |
 
 Items and vendors sit in the same file (SPEC §5.3 carves them out later):
 
@@ -174,7 +183,7 @@ artifacts only. Vendor `stock` is the starting shelf; the live shelf is
 the `VendorStock` resource, so trading does not mutate loaded data.
 
 `Gate`: `None`, `Check(Skill, i32)` (rolled once per run on first entry),
-`Flag(String)`, `Rep(FactionId, i32)`.
+`Flag(String)`, `Rep(FactionId, i32)`, `AnyRep(i32)` (that high with anyone at all).
 
 An area with an anomaly carries a field block, and only such an area may use the
 anomaly verbs (the loader checks):
@@ -218,6 +227,7 @@ world. Beside it:
 | `npcs.ron` | `{ id: Npc(name, faction, start, nodes) }`, dialogue included |
 | `quests.ron` | `{ id: Quest(name, faction, text, goal, rubles, rep) }` |
 | `factions.ron` | `{ id: Faction(name, rivals) }` |
+| `endings.ron` | `{ id: Ending(name, literal, corrupted) }` |
 
 Anomalies stay inline in the area that has one; backgrounds stay as consts in
 `run.rs`; dialogue nests inside its NPC. Split those out when they outgrow a screen,
@@ -225,7 +235,9 @@ not before. Ids are lowercase snake_case strings everywhere, and the loader vali
 that every referenced id exists — across files — and panics on a dangling one.
 
 A dialogue line may carry a `req`, which is a threshold and not a roll (`Skill(Skill,
-i32)`, `Rep(FactionId, i32)`, `Flag(String)`). Write the requirement into the line's
+i32)`, `Rep(FactionId, i32)`, `Flag(String)`, `Rubles(u32)`, `Killed(EnemyId)`,
+`QuestsDone(usize)`). The Room is an NPC, so its wish list is `npcs.ron` content built
+out of the run by those same requirements — there is no bespoke wish screen. Write the requirement into the line's
 own text in brackets, GDD-style; an unmet line still renders, greyed, and refuses.
 
 A quest `goal` is `Have(ItemId)`, `Reach(AreaId)` or `Kill(EnemyId)`. Goals are
@@ -239,7 +251,9 @@ checked after every action and settle themselves — there is no hand-in step ye
 | Esc | close overlay; on `Area` does nothing |
 | A–Z | `Area` state only: look up the area's secrets table |
 | Tab | Inventory toggle |
-| F1 Status, F2 Map, F3 Journal, F5 Suspend | footer |
+| F2 Map, F3 Journal | footer, from `Area` |
+| F5 | suspend and quit, from `Area` only — never out of a fight |
+| F1 Status | still advertised in the footer, still does nothing |
 
 Letters are never menu accelerators. Do not add mouse handling.
 
@@ -284,8 +298,8 @@ Letters are never menu accelerators. Do not add mouse handling.
 
 - Commit on `main` per completed PLAN.md step, message in the imperative naming the
   step (`M1.3 footer + Inventory overlay`). Include `Cargo.lock`.
-- Do not commit `target/` or suspend/save files. Saves live in the platform data dir,
-  not the repo.
+- Do not commit `target/` or suspend/save files. Saves live in the platform data dir
+  (`SaveDir`), not the repo.
 - Every commit builds and runs. A commit that panics on startup gets reverted.
 
 ## 10. Definition of done for a milestone

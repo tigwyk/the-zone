@@ -8,6 +8,7 @@ use bevy::prelude::*;
 use serde::Deserialize;
 
 use crate::dialogue::NpcData;
+use crate::meta::EndingData;
 use crate::quest::QuestData;
 use crate::render::{Glyph, TileGrid, PALETTE};
 use crate::run::{RunState, Skill};
@@ -86,6 +87,9 @@ pub(crate) enum Gate {
     Check(Skill, i32),
     Flag(String),
     Rep(String, i32),
+    /// Standing that high with anyone at all (GDD §9: the route to the centre opens
+    /// for whichever faction you are highest with).
+    AnyRep(i32),
 }
 
 #[derive(Deserialize, Clone)]
@@ -101,6 +105,9 @@ pub(crate) enum Action {
     SetFlag(String),
     Talk(String),
     Jobs(String),
+    Memorial,
+    /// End the run on this ending. There is nothing after it.
+    End(String),
 }
 
 /// An anomaly field: the danger of walking in, what it does to you, what it hides.
@@ -179,6 +186,7 @@ pub(crate) struct ZoneData {
     pub npcs: HashMap<String, NpcData>,
     pub quests: HashMap<String, QuestData>,
     pub factions: HashMap<String, FactionData>,
+    pub endings: HashMap<String, EndingData>,
 }
 
 impl FromWorld for ZoneData {
@@ -258,6 +266,7 @@ pub(crate) fn load_zone(data_dir: &Path) -> ZoneData {
         npcs: read_ron(&data_dir.join("npcs.ron")),
         quests: read_ron(&data_dir.join("quests.ron")),
         factions: read_ron(&data_dir.join("factions.ron")),
+        endings: read_ron(&data_dir.join("endings.ron")),
     };
     data.validate_ids();
     data
@@ -282,6 +291,10 @@ impl ZoneData {
             Action::Jobs(f) => assert!(
                 self.factions.contains_key(f),
                 "zone.ron: {where_} opens a board for unknown faction '{f}'"
+            ),
+            Action::End(ending) => assert!(
+                self.endings.contains_key(ending),
+                "{where_} ends on unknown ending '{ending}'"
             ),
             _ => {}
         };
@@ -632,7 +645,9 @@ mod tests {
     fn loads_zone_data() {
         let zone = load_zone(Path::new("assets/data"));
         assert_eq!(zone.start, "camp");
-        assert_eq!(zone.areas.len(), 7);
+        assert_eq!(zone.areas.len(), 8);
+        assert_eq!(zone.endings.len(), 6); // GDD §12
+        assert!(zone.npcs.contains_key("room"));
         assert!(zone.npcs.contains_key("grisha"));
         assert!(zone.quests.contains_key("cull"));
         assert_eq!(zone.factions.len(), 7);

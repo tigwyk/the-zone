@@ -38,8 +38,8 @@ pub(crate) struct Node {
 #[serde(rename = "Line")]
 pub(crate) struct Line {
     pub text: String,
-    /// What the stalker has to be to say this. `ponytail:` skills, standing and flags
-    /// cover the content that exists; GDD §9 also allows a raw attribute threshold.
+    /// What the stalker has to be to say this. `ponytail:` GDD §9 also allows a raw
+    /// attribute threshold, which no line asks for yet.
     #[serde(default)]
     pub req: Option<Req>,
     #[serde(default)]
@@ -54,6 +54,11 @@ pub(crate) enum Req {
     Skill(Skill, i32),
     Rep(String, i32),
     Flag(String),
+    /// The Room's short list is built from the run (GDD §9): what you have, what you
+    /// have killed, what you have done for people.
+    Rubles(u32),
+    Killed(String),
+    QuestsDone(usize),
 }
 
 impl Req {
@@ -62,6 +67,9 @@ impl Req {
             Req::Skill(skill, at_least) => run.skills[skill.index()] >= *at_least,
             Req::Rep(faction, at_least) => run.rep_of(faction) >= *at_least,
             Req::Flag(flag) => run.flags.contains(flag),
+            Req::Rubles(at_least) => run.rubles >= *at_least,
+            Req::Killed(enemy) => run.kills.contains(enemy),
+            Req::QuestsDone(at_least) => run.quests_done.len() >= *at_least,
         }
     }
 }
@@ -164,7 +172,7 @@ mod tests {
 
     fn fixture() -> (ZoneData, RunState, Dialogue) {
         let zone = load_zone(Path::new("assets/data"));
-        let run = RunState::roll(0, &[8, 9, 4]);
+        let run = RunState::roll(0, &[8, 9, 4], &mut crate::run::Rng::new(3));
         let mut dialogue = Dialogue::default();
         start("grisha", &mut dialogue, &zone);
         (zone, run, dialogue)

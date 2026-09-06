@@ -130,6 +130,9 @@ the game goes through one function so this table is the only place it lives.
 | Ecologist | +1 INT, +10 Science, +10 Medicine | Ecologists +30 | reach the Lab once |
 | Bandit | +1 AGI, +10 Sneak, +10 Barter | Bandits +30, Loners −20 | die to bandits once |
 
+Until the Lab and the bandits exist, the nearest thing that does stands in: the
+Ecologist is earned by reaching the Room, the Bandit by dying of wounds.
+
 ---
 
 ## 5. Areas
@@ -321,6 +324,12 @@ corrupted reading; which one you get depends on Monolith rep and a hidden LCK ch
 Plus two non-wishes: refuse and walk out (Tarkovsky's ending), or be absorbed by the
 Monolith if their rep is highest. Every ending writes a memorial entry.
 
+**The six:** riches (2000 ₽ on you), strength (you killed something), remembrance (two
+jobs settled), wholeness (always offered), refusal (always offered), and the Monolith
+(standing 50 with them). **The reading:** Monolith standing above 25 corrupts outright;
+otherwise it is a hidden roll under `50 + 5 × LCK`, so an average stalker walks out with
+what they asked for three times in four.
+
 ---
 
 ## 10. Death and meta-progression
@@ -330,7 +339,8 @@ Monolith if their rep is highest. Every ending writes a memorial entry.
 - **Suspend** (F5) saves and quits. Resuming deletes the file. There is no reload.
 - **Persists across runs:** discovered lore entries, unlocked backgrounds, faction rep
   at 25% of its final value, the memorial (name, days survived, cause of death, last
-  note). The camp scene shows the memorial and lets a new stalker read fallen stalkers'
+  note). The name is a Zone nickname rolled at creation — nobody uses their own in
+  here — and the note is the last thing that happened to them. The camp scene shows the memorial and lets a new stalker read fallen stalkers'
   notes, which can hint at secrets.
 - **Does not persist:** items, rubles, skills, map knowledge, revealed secrets.
 

@@ -406,7 +406,7 @@ mod tests {
 
     fn fixture() -> (ZoneData, RunState, Rng, Combat) {
         let zone = load_zone(Path::new("assets/data"));
-        let run = RunState::roll(0, &[0, 2, 3]);
+        let run = RunState::roll(0, &[0, 2, 3], &mut Rng::new(3));
         let mut combat = Combat::default();
         start("flesh", &mut combat, &run, &zone);
         (zone, run, Rng::new(4242), combat)

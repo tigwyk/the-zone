@@ -79,4 +79,40 @@
             ),
         },
     ),
+    // The Room (GDD 9). It is an NPC because a wish is a dialogue line: the short
+    // list is built from the run by the same requirements every other line uses.
+    "room": Npc(
+        name: "The Room",
+        faction: "monolith",
+        start: "light",
+        nodes: {
+            "light": Node(
+                text: "The light does not flicker and it does not warm you. It has been waiting the way a room waits, which is not at all. Ask.",
+                options: [
+                    Line(
+                        text: "[Monolith 50] I am listening. I have been listening a long time.",
+                        req: Some(Rep("monolith", 50)),
+                        action: Some(End("monolith")),
+                    ),
+                    Line(
+                        text: "[2000 RU] Make it so I never have to come back in here for money.",
+                        req: Some(Rubles(2000)),
+                        action: Some(End("riches")),
+                    ),
+                    Line(
+                        text: "[killed a Flesh] Make me the thing the rim runs from.",
+                        req: Some(Killed("flesh")),
+                        action: Some(End("power")),
+                    ),
+                    Line(
+                        text: "[2 jobs done] Make them remember my name out there.",
+                        req: Some(QuestsDone(2)),
+                        action: Some(End("remembered")),
+                    ),
+                    Line(text: "Make me whole. That is all.", action: Some(End("health"))),
+                    Line(text: "Say nothing. Turn around.", action: Some(End("refuse"))),
+                ],
+            ),
+        },
+    ),
 }
