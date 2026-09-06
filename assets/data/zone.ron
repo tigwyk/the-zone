@@ -43,7 +43,7 @@ Zone(
             menu: [
                 ("Read the log", SetFlag("read_the_log")),
                 ("The last page", Lore("the_hatch")),
-                ("Take the kit", Give("lockpicks", 1)),
+                ("Take the kit", Give("sawn_off", 1)),
                 ("Return", Travel("camp")),
             ],
             secrets: {},

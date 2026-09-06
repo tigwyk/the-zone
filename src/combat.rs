@@ -26,11 +26,20 @@ const AP_MIN: i32 = AP_MOVE;
 const AIMED_BONUS: i32 = 20;
 /// An aimed shot crits on 5, not just on 1 (GDD §8).
 const AIMED_CRIT_ON: u32 = 5;
+/// How far one point of a crit-range affix widens the window. The bench in
+/// balance.rs measured one-for-one, and then two-for-one, as worth about a single
+/// percentage point of win rate: base damage is low enough that doubling it
+/// occasionally is weak unless it happens often. Five is a real 6-16% crit chance.
+const CRIT_PER_POINT: u32 = 5;
 const FAR_PENALTY: i32 = -20;
 /// Bare hands, for a stalker who sold their knife (GDD §8).
 const UNARMED: (u32, u32) = (1, 3);
 /// GDD §8: an enemy that runs does so under a fifth of its health.
 const FLEE_BELOW: i32 = 5;
+/// The AP an ordinary thing has, and what each point above it takes off your chance
+/// of outrunning it.
+const BASE_AP: i32 = 7;
+const FASTER_PER_AP: i32 = 8;
 
 #[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Band {
@@ -259,9 +268,18 @@ pub(crate) fn act(
         }
         Verb::Flee => {
             combat.ap = 0;
-            // GDD §8: fleeing is a Sneak check and costs the whole turn.
-            let out = check_skill(run, Skill::Sneak.index(), combat.band.to_hit(), 1, rng);
-            if matches!(out, Outcome::Success | Outcome::CritSuccess) {
+            // GDD §8: a Sneak check, *or* AGI against the fastest thing chasing you.
+            // Only the first half existed, and the bench showed what that cost: a
+            // stalker who decided to break off from a pseudogiant still died three
+            // times in five, which is not a choice, it is a formality.
+            let quiet = check_skill(run, Skill::Sneak.index(), combat.band.to_hit(), 1, rng);
+            let legs = check(
+                attr(run, zone, AGI) * 10 - (enemy.ap - BASE_AP) * FASTER_PER_AP,
+                combat.band.to_hit(),
+                rng,
+            );
+            let away = |o: &Outcome| matches!(o, Outcome::Success | Outcome::CritSuccess);
+            if away(&quiet) || away(&legs) {
                 combat.active = false;
                 return format!("You break contact and lose the {}.", enemy.name);
             }
@@ -294,7 +312,7 @@ fn attack(
         + night_penalty(run, zone)
         + hand.to_hit
         + if aimed { AIMED_BONUS } else { 0 };
-    let crit_on = if aimed { AIMED_CRIT_ON } else { 1 } + hand.crit;
+    let crit_on = if aimed { AIMED_CRIT_ON } else { 1 } + hand.crit * CRIT_PER_POINT;
     let out = check_skill(run, hand.skill.index(), modifier, crit_on, rng);
 
     match out {

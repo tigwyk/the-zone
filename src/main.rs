@@ -1,5 +1,7 @@
 //! The Zone — M7 (polish).
 
+#[cfg(test)]
+mod balance;
 mod area;
 mod audio;
 mod combat;

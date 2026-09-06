@@ -30,6 +30,7 @@ src/dialogue.rs    NPCs, menu-option dialogue, the dialogue screen        (M5)
 src/quest.rs       jobs, standing, the job board and journal screens      (M5)
 src/meta.rs        memorial, unlocks, suspend, endings, the save files    (M6)
 src/loot.rs        rarity, affixes, item instances, rolling              (M8)
+src/balance.rs     combat bench: loadouts, trials, reports    (test-only, M8)
 src/audio.rs       the three cues                                        (M7)
 tools/make_sounds.py  synthesises assets/audio; the .wav files are the input
 assets/data/       all game content — see §5
@@ -324,6 +325,19 @@ Letters are never menu accelerators. Do not add mouse handling.
   test builds the same app on `MinimalPlugins + StatesPlugin`, presses keys into
   `ButtonInput<KeyCode>`, and reads the `TileGrid` back as text. Keep it that way: no
   game logic in `main`, nothing in an input system that needs a window.
+- **Balance is measured, not guessed.** `balance.rs` drives the real `combat::act`
+  loop with a built `Loadout` — a weapon and armour with named affix rolls, a skill, a
+  policy, attribute overrides — for as many trials as you like, and prints win rate,
+  deaths, break-offs, rounds and health left. Reports are `#[ignore]`d; run them with
+  `cargo test --release -- --ignored --nocapture balance`. Every trial builds a fresh
+  stalker, because `check_skill` lets a skill climb as it is used and that would drift
+  a long run. Seeds are fixed per row, so any number in a report can be reproduced.
+  **Do not model the rules a second time in the bench** — it must call the same code
+  the game does, or it will measure a game that does not exist.
+- Findings that matter get a non-ignored guard beside them, so the balance cannot
+  quietly drift back: an affix has to beat a plain weapon, breaking off has to beat
+  standing and fighting, and the first Flesh has to lose to the hatch gun and win
+  against a knife.
 - **Each milestone's acceptance play-through is a test**, in `mod playthrough` at the
   bottom of `main.rs`, driven through the `Sim` harness (`press`, `choose`, `assert_shows`,
   `assert_gutter_clear`). Seed the `Rng` so the run is reproducible. Assert on what the

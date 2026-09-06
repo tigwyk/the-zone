@@ -69,6 +69,15 @@ instance now, not an id, and an equipment slot points at one particular pistol. 
 is rolled out of a thousand and pushed by how deep the thing was and how lucky you are,
 capped so relics stay rare - about six in ten drops are plain at the edge.
 
+**The bench.** `balance.rs` drives the real combat loop over as many fights as you
+like, for loadouts built out of named affix rolls, and prints win rate, deaths,
+break-offs, rounds and health left. It has already paid for itself: it found that
+crit-range affixes were worth about one percentage point of win rate at the price of a
+good weapon, that half of GDD §8's flee rule was never implemented (a stalker who
+decided to run from a Pseudogiant still died three times in five), and that a starting
+knife loses to the first Flesh three times in four. All three are fixed, and each has a
+guard test so it cannot drift back.
+
 **The polish (M7).** Three synthesised cues - a tick for moving, two steps up for
 confirming, a thud when something hurts you - played by a system that reads the keyboard
 and the stalker's health directly, so nothing had to be plumbed through the game. A CRT
@@ -81,7 +90,8 @@ events is truncated visibly instead of silently falling off the grid.
 **The game tests itself.** `add_game` registers every resource, state and input system;
 `main` adds only the window, the renderer, the scanlines and the audio. So `cargo test`
 builds the same app headless on `MinimalPlugins`, presses keys into it and reads the
-`TileGrid` back as text. Seventy-four tests green, twenty of them whole play-throughs.
+`TileGrid` back as text. Seventy-seven tests green, twenty of them whole play-throughs, plus four balance
+reports that print rather than assert.
 Tests run on a temp `SaveDir` and never touch the player's own.
 
 Deliberate simplifications, documented in code:

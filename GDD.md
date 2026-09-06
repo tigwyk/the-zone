@@ -304,6 +304,32 @@ Damage = weapon dice − armor. Crit ×2 and ignores armor.
 Enemies use a three-state machine: **approach** (close band), **attack**, **flee** at
 under 20% HP (bandits and Fleshes flee; Bloodsuckers and Controllers do not).
 
+**Measured, over 3000 fights each** (`cargo test --release -- --ignored --nocapture
+balance`). A stalker in the starting kit, one who found the gun behind the camp's
+hidden letter, one properly kitted, and one geared for the deep:
+
+| | knife | sawn-off | rifle + vest | marked sniper + suit |
+|---|---|---|---|---|
+| Blind Dog | 99% | 100% | 100% | 100% |
+| Flesh | 26% | 66% | 100% | 100% |
+| Bandit | 4% | 32% | 100% | 100% |
+| Zone Boar | 0% | 8% | 97% | 100% |
+| Bloodsucker | 0% | 0% | 52% | 100% |
+| Controller | 0% | 0% | 36% | 100% |
+| Pseudogiant | 0% | 0% | 0% | 76% |
+
+The curve is meant to read that way: a knife answers a dog and nothing else, the deep
+mutants want real gear, and the Pseudogiant on the approach wants everything you have.
+Breaking off is the other half of it — a kitted stalker who runs from a Pseudogiant
+gets away three times in five rather than dying, which is what makes the fight a choice
+rather than a wall.
+
+**A known consequence of the AP table.** At 7 AP an ordinary stalker can afford one
+attack (4) or one aimed shot (6), and never two of anything, so aiming is simply better
+— measured at skill 40 against a Flesh, it takes deaths from 17% to 2%. The choice only
+becomes a choice at 8 AP or more, which is AGI 6 and up. That falls out of the numbers
+in the table above rather than from the code, and is left as it is.
+
 **Roster order of implementation:** Bandit (human, gun), Flesh, Blind Dog, Bloodsucker
 (invisible until it attacks: PER check to act first), Controller (forces a will check
 each turn or lose the action), Pseudogiant (boss, guards the Room's approach).
