@@ -290,7 +290,7 @@ far. The scene art stays on screen; combatants are listed under it.
 
 | Action | AP | Notes |
 |---|---|---|
-| Attack | 4 | to-hit = weapon skill + modifiers |
+| Attack | 3 | to-hit = weapon skill + modifiers |
 | Aimed attack | 6 | +20 to-hit, crits on ≤5 |
 | Move band | 3 | closer or farther by one band |
 | Use item | 4 | medkit, antirad, grenade |
@@ -305,30 +305,47 @@ Enemies use a three-state machine: **approach** (close band), **attack**, **flee
 under 20% HP (bandits and Fleshes flee; Bloodsuckers and Controllers do not).
 
 **Measured, over 3000 fights each** (`cargo test --release -- --ignored --nocapture
-balance`). A stalker in the starting kit, one who found the gun behind the camp's
-hidden letter, one properly kitted, and one geared for the deep:
+balance`). Kill rate for a stalker in the starting kit, one who found the gun behind
+the camp's hidden letter, one properly kitted, and one geared for the deep:
 
 | | knife | sawn-off | rifle + vest | marked sniper + suit |
 |---|---|---|---|---|
-| Blind Dog | 99% | 100% | 100% | 100% |
-| Flesh | 26% | 66% | 100% | 100% |
-| Bandit | 4% | 32% | 100% | 100% |
-| Zone Boar | 0% | 8% | 97% | 100% |
-| Bloodsucker | 0% | 0% | 52% | 100% |
-| Controller | 0% | 0% | 36% | 100% |
-| Pseudogiant | 0% | 0% | 0% | 76% |
+| Blind Dog | 96% | 96% | 88% | 99% |
+| Flesh | 23% | 68% | 96% | 92% |
+| Bandit | 29% | 23% | 59% | 91% |
+| Zone Boar | 0% | 13% | 99% | 100% |
+| Bloodsucker | 0% | 0% | 28% | 100% |
+| Controller | 0% | 0% | 41% | 100% |
+| Pseudogiant | 0% | 0% | 0% | 91% |
 
 The curve is meant to read that way: a knife answers a dog and nothing else, the deep
 mutants want real gear, and the Pseudogiant on the approach wants everything you have.
 Breaking off is the other half of it — a kitted stalker who runs from a Pseudogiant
-gets away three times in five rather than dying, which is what makes the fight a choice
-rather than a wall.
+gets away just under half the time rather than dying, which is what makes the fight a
+choice rather than a wall.
 
-**A known consequence of the AP table.** At 7 AP an ordinary stalker can afford one
-attack (4) or one aimed shot (6), and never two of anything, so aiming is simply better
-— measured at skill 40 against a Flesh, it takes deaths from 17% to 2%. The choice only
-becomes a choice at 8 AP or more, which is AGI 6 and up. That falls out of the numbers
-in the table above rather than from the code, and is left as it is.
+**Attack costs 3, and that is what makes it a decision.** At 4 an ordinary 7-AP stalker
+could afford one attack or one aimed shot and never two of anything, so aiming was
+simply better and there was nothing to choose. At 3 the turn buys two swings or one
+aimed shot, and the bench says the answer changes with skill: against a Flesh at skill
+40 swinging twice wins 83% to 74%, at 60 it is 96% to 92%, and by 85 the aimed shot
+pulls ahead 99% to 96%. Low skill wants more chances to hit; high skill wants the +20
+and the wider crit.
+
+**What the cheaper attack costs, kept deliberately.** The cost is shared with the
+mutants, so everything in the Zone swings more often too. Two consequences, both
+accepted rather than overlooked:
+
+- **The deep roster hits much harder.** A bloodsucker's nine AP now buys three swings,
+  and a kitted stalker's odds against one fell from 52% to 28%. Splitting the cost so
+  only the player got the discount was measured and rejected: it took the knife from
+  losing to the first Flesh three times in four to *winning* three times in four, which
+  is a different and worse game.
+- **Wounded things get away more.** A quick kill drops an enemy under its flee
+  threshold while it is still at far range, and from far it is gone the same turn — so
+  a better gun can mean *fewer* kills and less loot. A kitted stalker now loses 41% of
+  bandits and 12% of blind dogs that way. That is a real tension and not obviously
+  wrong, but it is the first thing to revisit if the loot economy feels thin.
 
 **Roster order of implementation:** Bandit (human, gun), Flesh, Blind Dog, Bloodsucker
 (invisible until it attacks: PER check to act first), Controller (forces a will check

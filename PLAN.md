@@ -76,7 +76,11 @@ crit-range affixes were worth about one percentage point of win rate at the pric
 good weapon, that half of GDD §8's flee rule was never implemented (a stalker who
 decided to run from a Pseudogiant still died three times in five), and that a starting
 knife loses to the first Flesh three times in four. All three are fixed, and each has a
-guard test so it cannot drift back.
+guard test so it cannot drift back. Attack then dropped from 4 AP to 3, which is what
+turns the attack-or-aim decision into a real one - two swings beat one aimed shot below
+about skill 70, and lose to it above - at the cost of a deadlier deep roster and more
+wounded things escaping. The bench measured the alternative of discounting only the
+player and rejected it: it made the early game trivial.
 
 **The polish (M7).** Three synthesised cues - a tick for moving, two steps up for
 confirming, a thud when something hurts you - played by a system that reads the keyboard

@@ -16,7 +16,7 @@ const YOU_ROW: usize = 20;
 const MENU_ROW: usize = 22;
 
 // AP costs (GDD §8).
-pub(crate) const AP_ATTACK: i32 = 4;
+pub(crate) const AP_ATTACK: i32 = 3;
 pub(crate) const AP_AIMED: i32 = 6;
 pub(crate) const AP_MOVE: i32 = 3;
 pub(crate) const AP_ITEM: i32 = 4;
