@@ -12,7 +12,7 @@ use crate::meta::EndingData;
 use crate::quest::QuestData;
 use crate::render::{Glyph, TileGrid, PALETTE};
 use crate::run::{RunState, Skill};
-use crate::screens::draw_chrome;
+use crate::screens::{draw_chrome, draw_message};
 use crate::sim::{visible_menu, Fields, GameClock};
 
 // Fixed row map (SPEC §4): art 0–17, desc 19–20, menu 22–26, message 27, status 28, footer 29.
@@ -296,6 +296,14 @@ impl ZoneData {
                 self.endings.contains_key(ending),
                 "{where_} ends on unknown ending '{ending}'"
             ),
+            // SPEC §8: one line, at most 78 characters, and no shouting.
+            Action::Say(line) => {
+                assert!(
+                    line.chars().count() <= 78,
+                    "zone.ron: {where_} says a line longer than 78 characters"
+                );
+                assert!(!line.contains('!'), "zone.ron: {where_} shouts");
+            }
             _ => {}
         };
         for (id, area) in &self.areas {
@@ -462,6 +470,12 @@ fn load_area_file(path: &Path) -> (Vec<String>, Vec<String>, Vec<(usize, usize, 
                 "{}: description line exceeds 78 chars",
                 path.display()
             );
+            // SPEC §8: dread is quiet. The Zone does not shout.
+            assert!(
+                !l.contains('!'),
+                "{}: no exclamation marks in a description",
+                path.display()
+            );
             l.to_string()
         })
         .collect();
@@ -544,7 +558,7 @@ pub(crate) fn build_area_grid(
         grid.text(2, MENU_ROW + i, label, fg, false);
     }
 
-    grid.text(0, MESSAGE_ROW, message, PALETTE.desc, false);
+    draw_message(grid, message);
     draw_chrome(grid, run, clock);
 }
 

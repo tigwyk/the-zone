@@ -42,12 +42,27 @@ pub(crate) fn draw_chrome(grid: &mut TileGrid, run: &RunState, clock: &GameClock
     if clock.warning(run) {
         grid.text(x, STATUS_ROW, "[emission soon]", PALETTE.red, true);
     }
-    let footer = "Tab Inventory   F1 Status   F2 Map   F3 Journal   F5 Save   Esc Back";
+    // The footer tells the truth: F1 Status was advertised for six milestones and
+    // never existed, and the inventory panel already shows everything it would.
+    let footer = "Tab Inventory   F2 Map   F3 Journal   F4 Scanlines   F5 Save   Esc Back";
     grid.text(0, FOOTER_ROW, footer, PALETTE.menu, false);
 }
 
 pub(crate) fn title(grid: &mut TileGrid, s: &str) {
     grid.text(0, 0, s, PALETTE.menu_sel, true);
+}
+
+/// The message row (SPEC §4). A message is meant to fit in one line; when one has
+/// been built out of several - a hit, the reply, and a job settling in the same
+/// breath - it says so rather than falling off the edge of the grid.
+pub(crate) fn draw_message(grid: &mut TileGrid, message: &str) {
+    let width = crate::render::GRID_W;
+    if message.chars().count() <= width {
+        grid.text(0, MESSAGE_ROW, message, PALETTE.desc, false);
+        return;
+    }
+    let cut: String = message.chars().take(width - 3).collect();
+    grid.text(0, MESSAGE_ROW, &format!("{cut}..."), PALETTE.desc, false);
 }
 
 pub(crate) fn hint(grid: &mut TileGrid, s: &str) {
@@ -92,7 +107,7 @@ pub(crate) fn build_creation_grid(
 ) {
     grid.clear();
     title(grid, "THE ZONE - a new stalker");
-    grid.text(0, MESSAGE_ROW, message, PALETTE.desc, false);
+    draw_message(grid, message);
 
     let (preview_bg, preview_tags) = if phase == 0 { (sel, &[][..]) } else { (bg, tags) };
     // A throwaway die, so drawing the preview does not spend the run's own rolls.
@@ -199,7 +214,7 @@ pub(crate) fn build_inventory_grid(
         grid.text(PANEL_COL + 12, LIST_ROW + i, &line, PALETTE.desc, false);
     }
 
-    grid.text(0, MESSAGE_ROW, message, PALETTE.desc, false);
+    draw_message(grid, message);
     hint(grid, "Up/Down select   Enter use or equip   Tab/Esc back");
     draw_chrome(grid, run, clock);
 }
@@ -334,7 +349,7 @@ pub(crate) fn build_trade_grid(
         row(grid, 0, LIST_ROW + i, i == sel, &label);
     }
 
-    grid.text(0, MESSAGE_ROW, message, PALETTE.desc, false);
+    draw_message(grid, message);
     hint(grid, "Left/Right buy or sell   Up/Down select   Enter confirm   Esc leave");
     draw_chrome(grid, run, clock);
 }
@@ -454,7 +469,7 @@ pub(crate) fn build_map_grid(
         }
     }
 
-    grid.text(0, MESSAGE_ROW, message, PALETTE.desc, false);
+    draw_message(grid, message);
     hint(grid, "Up/Down read   Enter walk there if it is next door   Esc back");
     draw_chrome(grid, run, clock);
 }
@@ -587,6 +602,30 @@ mod tests {
         let status: String = (0..grid.w).map(|x| grid.cells[STATUS_ROW * grid.w + x].ch).collect();
         assert!(status.contains("HP 38/38"), "{status}");
         assert!(status.contains("Day 1 06:00"), "{status}");
+    }
+
+    #[test]
+    fn a_long_message_says_it_was_cut_instead_of_falling_off_the_grid() {
+        use crate::render::{TileGrid, GRID_W};
+        let mut grid = TileGrid::new(GRID_W, crate::render::GRID_H);
+
+        // Combat builds a line out of several events, and it can outgrow the row.
+        let long = "x".repeat(GRID_W + 40);
+        draw_message(&mut grid, &long);
+        let row: String = (0..GRID_W)
+            .map(|x| grid.cells[MESSAGE_ROW * GRID_W + x].ch)
+            .collect();
+        assert!(row.ends_with("..."), "{row}");
+        assert_eq!(row.chars().count(), GRID_W);
+
+        // A message that fits is left exactly as written. (Every real screen clears
+        // the grid before it draws; this stands in for that.)
+        grid.clear();
+        draw_message(&mut grid, "You pry open the hatch.");
+        let row: String = (0..GRID_W)
+            .map(|x| grid.cells[MESSAGE_ROW * GRID_W + x].ch)
+            .collect();
+        assert_eq!(row.trim_end(), "You pry open the hatch.");
     }
 
     #[test]

@@ -9,12 +9,11 @@ use serde::Deserialize;
 use crate::area::{Action, ZoneData};
 use crate::render::{TileGrid, PALETTE};
 use crate::run::{RunState, Skill};
-use crate::screens::{draw_chrome, hint, title, wrap};
+use crate::screens::{draw_chrome, draw_message, hint, title, wrap};
 use crate::sim::GameClock;
 
 const TEXT_ROW: usize = 3;
 const OPTIONS_ROW: usize = 8;
-const MESSAGE_ROW: usize = 27;
 
 #[derive(Deserialize, Clone)]
 #[serde(rename = "Npc")]
@@ -157,7 +156,7 @@ pub(crate) fn build_dialogue_grid(
         grid.text(2, OPTIONS_ROW + i, &line.text, fg, false);
     }
 
-    grid.text(0, MESSAGE_ROW, message, PALETTE.desc, false);
+    draw_message(grid, message);
     hint(grid, "Up/Down choose   Enter say it   Esc walk away");
     draw_chrome(grid, run, clock);
 }

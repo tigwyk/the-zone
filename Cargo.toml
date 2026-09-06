@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bevy = "=0.19.1"
+# "wav" so the cues in assets/audio decode; Bevy ships vorbis only by default.
+bevy = { version = "=0.19.1", features = ["wav"] }
 ron = "0.12"
 serde = { version = "1", features = ["derive"] }

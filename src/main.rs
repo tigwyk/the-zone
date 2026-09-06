@@ -1,6 +1,7 @@
-//! The Zone — M6 (the end).
+//! The Zone — M7 (polish).
 
 mod area;
+mod audio;
 mod combat;
 mod dialogue;
 mod meta;
@@ -19,7 +20,7 @@ use combat::{build_combat_grid, Combat};
 use dialogue::{build_dialogue_grid, Dialogue};
 use meta::{build_memorial_grid, MetaProgress, SaveDir};
 use quest::{build_board_grid, build_journal_grid, Board};
-use render::{render_grid, TileGrid};
+use render::{render_grid, spawn_scanlines, toggle_scanlines, TileGrid};
 use run::{Rng, RunState, BACKGROUNDS, REST_COST, REST_RADS, SKILL_NAMES, TAG_COUNT};
 use screens::{
     build_creation_grid, build_gameover_grid, build_inventory_grid, build_map_grid,
@@ -170,16 +171,21 @@ fn main() {
     let mut app = App::new();
     app.add_plugins(DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window {
-            title: "The Zone — M6".into(),
+            title: "The Zone".into(),
             resolution: WindowResolution::new(1280, 720).with_scale_factor_override(1.0),
             present_mode: PresentMode::AutoVsync,
             ..default()
         }),
         ..default()
     }));
+    // The window, the renderer and the polish. None of it is in `add_game`, so the
+    // play-through tests still run headless.
     add_game(&mut app)
-        .add_systems(Startup, setup)
-        .add_systems(Update, render_grid.after(GameInput))
+        .add_systems(Startup, (setup, spawn_scanlines, audio::load_cues))
+        .add_systems(
+            Update,
+            (render_grid, toggle_scanlines, audio::play_cues).after(GameInput),
+        )
         .run();
 }
 

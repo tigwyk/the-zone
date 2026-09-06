@@ -29,6 +29,8 @@ src/combat.rs      bands, AP turns, the enemy machine, the combat screen (M4)
 src/dialogue.rs    NPCs, menu-option dialogue, the dialogue screen        (M5)
 src/quest.rs       jobs, standing, the job board and journal screens      (M5)
 src/meta.rs        memorial, unlocks, suspend, endings, the save files    (M6)
+src/audio.rs       the three cues                                        (M7)
+tools/make_sounds.py  synthesises assets/audio; the .wav files are the input
 assets/data/       all game content — see §5
 PLAN.md GDD.md SPEC.md
 ```
@@ -86,7 +88,12 @@ struct TileGrid { w: usize, cells: Vec<Glyph> }   // 80 × 30, row-major
   description 19–20, blank 21, menu 22–26, message 27, status 28, footer 29.
   Modal screens own rows 0–27 and must not touch 28–29.
 - `TileGrid::set` silently ignores out-of-range writes. Build functions may rely on
-  that instead of bounds-checking every string.
+  that instead of bounds-checking every string. The exception is row 27: draw it with
+  `screens::draw_message`, which truncates with an ellipsis, because a message built
+  out of several events must not lose its tail without saying so.
+- **Presentation that needs a window lives in `main`**, never in `add_game`: the
+  renderer, the scanline overlay and the audio cues are all registered there, which is
+  what keeps the play-through tests headless.
 - `bold` renders as brightness (`bold_color`), not a bold face. Do not add a font.
 - **Palette** is one `Palette` const with named colors: `dim, ground, pale, fire,
   smoke, water, amber, cyan, secret, red, grey, desc, menu, menu_sel, status`. Code
@@ -252,8 +259,11 @@ checked after every action and settle themselves — there is no hand-in step ye
 | A–Z | `Area` state only: look up the area's secrets table |
 | Tab | Inventory toggle |
 | F2 Map, F3 Journal | footer, from `Area` |
+| F4 | scanlines on/off, anywhere |
 | F5 | suspend and quit, from `Area` only — never out of a fight |
-| F1 Status | still advertised in the footer, still does nothing |
+
+There is no F1 Status: the inventory panel already shows the attributes and skills it
+would, so M7 took it out of the footer rather than leaving the footer lying.
 
 Letters are never menu accelerators. Do not add mouse handling.
 
@@ -289,6 +299,8 @@ Letters are never menu accelerators. Do not add mouse handling.
 
 - Descriptions: second person, present tense, ≤ 2 lines, ≤ 78 chars each, no `!`.
 - Messages: one line, ≤ 78 chars.
+- The loader enforces both: an over-long or shouting `Say`, or a description with an
+  exclamation mark in it, is a load panic naming the file.
 - Art: ASCII only, ≤ 80 × 18 including secret letters. Secret letters are uppercase and
   should sit on something that makes sense to press (a door, a glint, a hatch).
 - About one secret per three areas. Secrets pay off: a room, an artifact, lore.

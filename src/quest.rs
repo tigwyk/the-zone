@@ -7,11 +7,10 @@ use serde::Deserialize;
 use crate::area::ZoneData;
 use crate::render::{TileGrid, PALETTE};
 use crate::run::RunState;
-use crate::screens::{draw_chrome, hint, title, wrap};
+use crate::screens::{draw_chrome, draw_message, hint, title, wrap};
 use crate::sim::GameClock;
 
 const LIST_ROW: usize = 4;
-const MESSAGE_ROW: usize = 27;
 
 /// GDD §9 names five shapes. These three ride on state the run already keeps.
 /// `ponytail:` escort and deliver need followers and NPC-to-NPC routes; they are
@@ -162,7 +161,7 @@ pub(crate) fn build_board_grid(
 
     let ids = offered(zone, run, &board.faction);
     list(grid, zone, &ids, board.sel, "Nothing on the board today.");
-    grid.text(0, MESSAGE_ROW, message, PALETTE.desc, false);
+    draw_message(grid, message);
     hint(grid, "Up/Down choose   Enter take the job   Esc leave the board");
     draw_chrome(grid, run, clock);
 }
@@ -201,7 +200,7 @@ pub(crate) fn build_journal_grid(
         grid.text(crate::screens::PANEL_COL, y + 1, &line, PALETTE.desc, false);
     }
 
-    grid.text(0, MESSAGE_ROW, message, PALETTE.desc, false);
+    draw_message(grid, message);
     hint(grid, "Up/Down read   Esc back");
     draw_chrome(grid, run, clock);
 }

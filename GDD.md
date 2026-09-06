@@ -351,11 +351,18 @@ what they asked for three times in four.
 - Second person, present tense. Short sentences. No exclamation marks.
 - Descriptions: two lines, 78 characters each, maximum.
 - Messages: one line. State what happened, not how the player should feel.
-- Humor is dry and rare. Dread is constant and quiet.
+- Humor is dry and rare. Dread is constant and quiet. No exclamation marks; the loader
+  refuses them.
 - Names are Zone-flavored, not copied: our own anomaly and artifact names may echo
   STALKER's but the text is ours.
 - Colors mean things: green is ground and living, amber is anomaly, cyan is artifact,
-  **bold cyan is a secret**, red is damage and warning, grey is dead.
+  **bold cyan is a secret**, red is damage and warning, grey is dead. Green is the
+  screen's base state and everything else is an interruption, so the accents stay rare.
+- **Sound** is three cues and no music: a dry tick for moving the cursor, two steps up
+  for confirming, and a low thud when something takes a piece out of you. The thud is
+  the only one meant to land.
+- The display is a phosphor screen: every third scanline is darkened. It can be turned
+  off with F4, because readability beats decoration.
 
 ---
 

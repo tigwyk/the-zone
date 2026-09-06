@@ -18,69 +18,79 @@ hidden-letter secrets · **Bevy text pass, not a glyph atlas** (locked in M0, se
 
 ## 0. Where we are (2026-09-05)
 
-Ten modules on Bevy 0.19.1, fully data-driven: `main.rs` (app, states, input),
-`render.rs` (glyph, palette, renderer), `area.rs` (loaders, scene build), `run.rs` (the
-stalker), `screens.rs` (modal screens, the map), `sim.rs` (the Zone acting on you),
-`combat.rs` (bands, AP turns), `dialogue.rs` (NPCs), `quest.rs` (jobs and standing),
-`meta.rs` (what outlives a run). An 80x30 `TileGrid` blitted as one `Text2d` with a
-`TextSpan` per same-colour run. `States { CharacterCreation, Area, Inventory, Trade,
-Combat, Dialogue, Jobs, Map, Journal, Memorial, GameOver }`.
+**The roadmap is done: M0 through M7 are all in.** The game runs, ends, remembers, and
+tests itself.
 
-**M0 through M6 are done — the loop closes.** Eight areas: camp, the bar, the hatch,
-the road, Duty's Checkpoint 4, the Whirligig field, the quarry rim and the Room.
-Creation rolls a stalker with a Zone nickname; four vendors trade through the one
-`price()` formula; the field's tells stay dull until you Scan; the clock runs on every
-action and emissions arrive every 3-5 days; radiation kills at 1000; hidden letters sit
-behind skill checks, flags and standing; a Flesh holds the rim, fought over three range
-bands on Fallout's AP economy; skills rise by use. Dialogue lines can want a skill or a
-standing, job boards hand out carry / reach / kill work that settles itself, F2 maps
-what you have walked and F3 is the journal.
+Eleven modules on Bevy 0.19.1, fully data-driven: `main.rs` (app, states, input),
+`render.rs` (glyph, palette, renderer, scanlines), `area.rs` (loaders, scene build),
+`run.rs` (the stalker), `screens.rs` (modal screens, the map), `sim.rs` (the Zone acting
+on you), `combat.rs` (bands, AP turns), `dialogue.rs` (NPCs), `quest.rs` (jobs and
+standing), `meta.rs` (what outlives a run), `audio.rs` (three cues). An 80x30 `TileGrid`
+blitted as one `Text2d` with a `TextSpan` per same-colour run. `States {
+CharacterCreation, Area, Inventory, Trade, Combat, Dialogue, Jobs, Map, Journal,
+Memorial, GameOver }`.
 
-M6 gave it an end. Stand high enough with **anyone** and a tunnel opens off the quarry
-rim to **the Room**, which is an NPC — so its wish list is `npcs.ron` content, built out
-of the run by the same requirements every other dialogue line uses. Six endings, each
-with a literal reading and a corrupted one; Monolith standing corrupts outright and
-otherwise it is a hidden LCK roll. **Permadeath** is real: death or an ending both go
-through `meta::bank`, which carves the name, the days, the cause and the last thing that
-happened to them into the memorial, banks a quarter of their standing and all their
-lore, works out what the next stalker earned, and deletes the suspend file. The camp
-carries the memorial. **F5** suspends and quits; starting again drops you back where you
-stood and spends the file, so there is exactly one way in and no way to reload out of
-dying.
+**The run.** Creation rolls a stalker with a Zone nickname, a background and three tag
+skills. Eight areas: camp, the bar, the hatch, the road, Duty's Checkpoint 4, the
+Whirligig field, the quarry rim and the Room. Four vendors trade through the one
+`price()` formula with Barter, standing and specialty markups. The field's tells stay
+dull until you Scan, a Bolt buys the next step's answer, and the artifact you lift pays
++1 STR and 4 rads an hour. The clock runs on every action; emissions arrive every 3-5
+days with an hour of warning; radiation drags attributes down and kills at 1000. Hidden
+letters sit behind skill checks, flags and standing. A Flesh holds the rim, fought over
+three range bands on Fallout's AP economy; skills rise by use. Dialogue lines can want a
+skill or a standing and say so in brackets; job boards hand out work that settles
+itself; F2 maps what you have walked, F3 is the journal.
+
+**The end.** Stand high enough with anyone and a tunnel opens to the Room, which is an
+NPC - so its wish list is content, built out of the run by the same requirements every
+other dialogue line uses. Six endings, literal or corrupted. Death and endings both go
+through `meta::bank`: the memorial takes the name, the days, the cause and the last
+thing that happened, a quarter of the standing carries forward, and the suspend file
+is deleted. F5 suspends and quits; starting again spends the file.
+
+**The polish (M7).** Three synthesised cues - a tick for moving, two steps up for
+confirming, a thud when something hurts you - played by a system that reads the keyboard
+and the stalker's health directly, so nothing had to be plumbed through the game. A CRT
+scanline overlay, F4 to turn it off. A palette pass: green is the screen's base state
+and the warm and cyan accents are interruptions, with every colour name accounted for.
+And a content pass that made the writing rules enforceable - the loader now refuses an
+over-long or shouting line - plus `draw_message`, so a message built out of several
+events is truncated visibly instead of silently falling off the grid.
 
 **The game tests itself.** `add_game` registers every resource, state and input system;
-`main` adds only the window, camera and `render_grid`. So `cargo test` builds the same
-app headless on `MinimalPlugins`, presses keys into it and reads the `TileGrid` back as
-text - the milestone acceptance play-throughs are tests, not something a human has to
-sit and do. Tests run on a temp `SaveDir` and never touch the player's own.
-
-Fifty-five tests green, fifteen of them whole play-throughs, including: the walk in to
-the Room and a wish granted; a stalker dying and the next one inheriting their standing
-and reading their name on the memorial; a locked background refusing; suspend and
-resume, and the file being spent by reading it.
+`main` adds only the window, the renderer, the scanlines and the audio. So `cargo test`
+builds the same app headless on `MinimalPlugins`, presses keys into it and reads the
+`TileGrid` back as text. Fifty-seven tests green, fifteen of them whole play-throughs.
+Tests run on a temp `SaveDir` and never touch the player's own.
 
 Deliberate simplifications, documented in code:
 - No `rand` dependency: a six-line seeded xorshift covers d100 (`ponytail:` in `run.rs`).
+- No `bevy_kira_audio` either. Bevy's own `AudioPlayer` plays a one-shot at a volume,
+  which is the whole requirement; take the dependency when there is an ambience bed to
+  mix under it. The `wav` feature is on so the cues decode.
+- The scanlines are an overlay sprite, not a post-process shader. Curvature, bloom and
+  chromatic aberration would need the real thing.
 - No main-quest chain. GDD §9 wants five jobs ending in a route to the centre; the route
   is there, opened by standing, but the chain that should lead you to it is content.
 - The map is generated from `area::exits`, not a hand-drawn `map.area` scene, so it
   cannot hide a letter yet (GDD §5 wants one).
-- Quests settle themselves rather than needing a hand-in; escort and deliver, the other
-  two GDD §9 shapes, need followers and NPC-to-NPC routes.
+- Quests settle themselves rather than needing a hand-in; escort and deliver need
+  followers and NPC-to-NPC routes.
 - The Ecologist and Bandit unlock off the Room and dying of wounds, standing in for the
   Lab and the bandits, which do not exist yet.
-- Lore is the run's flags, counted on the memorial screen. GDD §12 wants 20 written
-  entries; that is content.
-- No `MainMenu` state, and no new-run-without-restarting: an ending or a death ends the
-  process. The next stalker starts the next time you launch.
-- Dialogue requirements cover skill, standing, flags, money, kills and jobs done; GDD §9
-  also allows a raw attribute threshold, which no line asks for yet.
+- No `MainMenu`, and no new run without relaunching: an ending or a death ends the
+  process.
 - No rep-gated post entry, no roving encounters, no cover, encumbrance or ammo.
 - Anomaly damage ignores armour; a scanned field is simply safe to cross.
 - Emissions do not swap an area's menu; the hour of warning is the whole mechanic.
-- F1 Status is still advertised in the footer and still does nothing; the inventory
-  panel already shows everything it would.
-- `#!` color-override lines in `.area` files are not implemented yet.
+- `#!` color-override lines in `.area` files are still not implemented, and no art has
+  needed one.
+
+**What is left is content, not code.** GDD §12 wants 30 areas, 8 anomaly fields, 12
+artifacts, 40 items, 6 enemies, 10 speaking NPCs, 15 jobs and 20 lore entries; there
+are 8, 1, 1, 15, 1, 2, 4 and 0. Every one of those is a row in a `.ron` file or an
+`.area` scene - the systems behind them are built and validated at load.
 
 ---
 
@@ -377,7 +387,8 @@ This is what lets the game grow into "content" instead of "code" after M5.
   factions, more vendors. Split `zone.ron` here. *(Done, 2026-09.)*
 - [x] **M6 — The end.** Room/Wish Granter, multiple endings, permadeath + suspend +
   meta saves. *(Done, 2026-09.)*
-- [ ] **M7 — Polish.** Audio, CRT/scanline shader, palette pass, content pass.
+- [x] **M7 — Polish.** Audio, CRT/scanline shader, palette pass, content pass.
+  *(Done, 2026-09. The shader is an overlay sprite; see §0.)*
 
 ---
 

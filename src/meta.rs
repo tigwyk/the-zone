@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::area::{VendorStock, ZoneData};
 use crate::render::{TileGrid, PALETTE};
 use crate::run::{check, Outcome, Rng, RunState, BACKGROUNDS, LCK};
-use crate::screens::{hint, title, wrap, PANEL_COL};
+use crate::screens::{draw_message, hint, title, wrap, PANEL_COL};
 use crate::sim::{FieldState, Fields, GameClock};
 
 const LIST_ROW: usize = 4;
@@ -270,7 +270,7 @@ pub(crate) fn build_memorial_grid(
         grid.text(2, 20, &line, PALETTE.dim, false);
     }
 
-    grid.text(0, 27, message, PALETTE.desc, false);
+    draw_message(grid, message);
     hint(grid, "Up/Down read a name   Esc back");
 }
 

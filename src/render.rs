@@ -1,19 +1,22 @@
 //! Renderer seam: the glyph buffer, palette, and the single text-pass renderer.
 
+use bevy::asset::RenderAssetUsages;
+use bevy::image::ImageSampler;
 use bevy::prelude::*;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::sprite::Anchor;
 use bevy::text::LineBreak;
 
 // ---------- palette (SPEC §4) ----------
 
-// water/amber/cyan/red/grey/pale are referenced by later content (anomalies, artifacts).
-#[allow(dead_code)]
+// `water` is the one name nothing reaches yet: no area art uses a water class.
 pub(crate) struct Palette {
     pub dim: Color,
     pub ground: Color,
     pub pale: Color,
     pub fire: Color,
     pub smoke: Color,
+    #[allow(dead_code)] // no area art declares a water class yet
     pub water: Color,
     pub amber: Color,
     pub cyan: Color,
@@ -26,22 +29,30 @@ pub(crate) struct Palette {
     pub status: Color,
 }
 
+// A phosphor screen with things burned onto it. Green is the ground state and
+// everything else is an interruption, so the accents run warm and stay rare
+// (GDD §11). Every colour here is used; nothing is kept "for later".
 pub(crate) const PALETTE: Palette = Palette {
-    dim: Color::srgb(0.30, 0.36, 0.30),
-    ground: Color::srgb(0.55, 0.70, 0.55),
-    pale: Color::srgb(0.82, 0.82, 0.70),
-    fire: Color::srgb(1.00, 0.55, 0.20),
-    smoke: Color::srgb(0.55, 0.55, 0.55),
-    water: Color::srgb(0.30, 0.50, 0.70),
-    amber: Color::srgb(1.00, 0.75, 0.20),
-    cyan: Color::srgb(0.30, 0.90, 0.90),
-    secret: Color::srgb(0.20, 1.00, 1.00),
-    red: Color::srgb(1.00, 0.30, 0.25),
-    grey: Color::srgb(0.50, 0.50, 0.50),
-    desc: Color::srgb(0.72, 0.72, 0.62),
-    menu: Color::srgb(0.70, 0.75, 0.70),
-    menu_sel: Color::srgb(1.00, 0.95, 0.45),
-    status: Color::srgb(0.65, 0.75, 0.65),
+    // Green: ground, living, the base state of the screen.
+    dim: Color::srgb(0.26, 0.33, 0.27),
+    ground: Color::srgb(0.52, 0.72, 0.52),
+    status: Color::srgb(0.62, 0.78, 0.62),
+    menu: Color::srgb(0.68, 0.78, 0.68),
+    // Off-white: prose, which has to read first.
+    desc: Color::srgb(0.76, 0.78, 0.68),
+    pale: Color::srgb(0.88, 0.88, 0.76),
+    // Warm: what is on fire, what is anomalous, what you have picked.
+    fire: Color::srgb(1.00, 0.52, 0.16),
+    amber: Color::srgb(1.00, 0.74, 0.18),
+    menu_sel: Color::srgb(1.00, 0.94, 0.42),
+    // Cyan: artifacts. Bold cyan is a secret and is nothing else (GDD §11).
+    cyan: Color::srgb(0.32, 0.88, 0.90),
+    secret: Color::srgb(0.16, 1.00, 1.00),
+    water: Color::srgb(0.28, 0.52, 0.72),
+    // Red is damage and warning. Grey is dead.
+    red: Color::srgb(1.00, 0.32, 0.26),
+    smoke: Color::srgb(0.52, 0.54, 0.52),
+    grey: Color::srgb(0.46, 0.48, 0.46),
 };
 
 // Fixed grid (SPEC §4).
@@ -105,6 +116,74 @@ impl FromWorld for TileGrid {
 
 #[derive(Component)]
 pub(crate) struct AsciiScreen;
+
+#[derive(Component)]
+pub(crate) struct Scanlines;
+
+/// Every third row of the display, darkened. `ponytail:` an overlay sprite, not a
+/// post-process shader - it buys the phosphor feel for twenty lines and no WGSL.
+/// Curvature, bloom and chromatic aberration would need the real thing.
+const SCANLINE_PERIOD: usize = 3;
+const SCANLINE_ALPHA: u8 = 30;
+
+/// One pixel wide and as tall as the display: the rows are uniform, so the sprite
+/// stretches it across. Every `SCANLINE_PERIOD`-th row carries the darkening.
+fn scanline_pixels(height: u32) -> Vec<u8> {
+    let mut data = vec![0u8; height as usize * 4];
+    for row in 0..height as usize {
+        if row % SCANLINE_PERIOD == 0 {
+            data[row * 4 + 3] = SCANLINE_ALPHA;
+        }
+    }
+    data
+}
+
+/// Draws the CRT overlay over the text. F4 turns it off, because readability beats
+/// decoration (GDD §2) and this is the one thing here that can cost some.
+pub(crate) fn spawn_scanlines(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+    windows: Query<&Window>,
+) {
+    let Ok(win) = windows.single() else {
+        return;
+    };
+    let height = win.height().max(1.0) as u32;
+    let mut image = Image::new(
+        Extent3d { width: 1, height, depth_or_array_layers: 1 },
+        TextureDimension::D2,
+        scanline_pixels(height),
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    // Nearest, or the lines blur into a flat tint.
+    image.sampler = ImageSampler::nearest();
+
+    commands.spawn((
+        Sprite {
+            image: images.add(image),
+            custom_size: Some(Vec2::new(win.width(), win.height())),
+            ..default()
+        },
+        Transform::from_xyz(0.0, 0.0, 10.0),
+        Scanlines,
+    ));
+}
+
+pub(crate) fn toggle_scanlines(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut scanlines: Query<&mut Visibility, With<Scanlines>>,
+) {
+    if !keys.just_pressed(KeyCode::F4) {
+        return;
+    }
+    for mut visibility in &mut scanlines {
+        *visibility = match *visibility {
+            Visibility::Hidden => Visibility::Inherited,
+            _ => Visibility::Hidden,
+        };
+    }
+}
 
 pub(crate) fn render_grid(
     mut commands: Commands,
@@ -183,4 +262,26 @@ fn spawn_screen(commands: &mut Commands, grid: &TileGrid, win: &Window) {
 fn bold_color(c: Color) -> Color {
     let s = c.to_srgba();
     Color::srgb(s.red * 0.4 + 0.6, s.green * 0.4 + 0.6, s.blue * 0.4 + 0.6)
+}
+
+// ---- tests (SPEC §7) ----
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_scanline_overlay_darkens_every_third_row_and_nothing_else() {
+        let data = scanline_pixels(9);
+        assert_eq!(data.len(), 9 * 4);
+        for row in 0..9 {
+            let alpha = data[row * 4 + 3];
+            let want = if row % SCANLINE_PERIOD == 0 { SCANLINE_ALPHA } else { 0 };
+            assert_eq!(alpha, want, "row {row}");
+            // Black, so it only ever subtracts light.
+            assert_eq!(&data[row * 4..row * 4 + 3], &[0, 0, 0]);
+        }
+        // Even one row tall it must not panic or run off the buffer.
+        assert_eq!(scanline_pixels(1).len(), 4);
+    }
 }

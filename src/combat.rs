@@ -6,14 +6,13 @@ use bevy::prelude::*;
 use crate::area::{draw_art, EnemyData, ItemKind, ZoneData};
 use crate::render::{TileGrid, PALETTE};
 use crate::run::{check, check_skill, Outcome, Rng, RunState, Skill, AGI};
-use crate::screens::draw_chrome;
+use crate::screens::{draw_chrome, draw_message};
 use crate::sim::{attr, carrying_light, is_night, Fields, GameClock, NIGHT_PENALTY};
 
 // Fixed row map (SPEC §4), shared with the area screen.
 const ENEMY_ROW: usize = 19;
 const YOU_ROW: usize = 20;
 const MENU_ROW: usize = 22;
-const MESSAGE_ROW: usize = 27;
 
 // AP costs (GDD §8).
 pub(crate) const AP_ATTACK: i32 = 4;
@@ -392,7 +391,7 @@ pub(crate) fn build_combat_grid(
         grid.text(2, MENU_ROW + i, label, fg, false);
     }
 
-    grid.text(0, MESSAGE_ROW, message, PALETTE.desc, false);
+    draw_message(grid, message);
     draw_chrome(grid, run, clock);
 }
 
