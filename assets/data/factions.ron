@@ -1,0 +1,11 @@
+// GDD 9: rep runs -100..100. Helping one side moves its rivals the other way
+// at half rate, so there is no way to be everyone's friend.
+{
+    "loners": Faction(name: "Loners", rivals: ["bandits"]),
+    "duty": Faction(name: "Duty", rivals: ["freedom", "monolith"]),
+    "freedom": Faction(name: "Freedom", rivals: ["duty"]),
+    "ecologists": Faction(name: "Ecologists", rivals: ["bandits"]),
+    "mercs": Faction(name: "Mercs", rivals: []),
+    "bandits": Faction(name: "Bandits", rivals: ["loners", "ecologists"]),
+    "monolith": Faction(name: "Monolith", rivals: ["duty", "freedom", "loners"]),
+}

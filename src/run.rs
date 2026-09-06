@@ -137,6 +137,12 @@ pub(crate) struct RunState {
     pub revealed: HashSet<String>,
     /// Gates already rolled, so a failed `Check` gate stays failed for the run.
     pub gate_rolled: HashSet<String>,
+    /// Areas this stalker has stood in - the map is drawn from it (GDD §5).
+    pub discovered: HashSet<String>,
+    /// Enemy ids killed, for kill jobs.
+    pub kills: HashSet<String>,
+    pub quests_taken: HashSet<String>,
+    pub quests_done: HashSet<String>,
     /// Set once, when the run ends.
     pub death: Option<String>,
 }
@@ -178,6 +184,10 @@ impl RunState {
             flags: HashSet::new(),
             revealed: HashSet::new(),
             gate_rolled: HashSet::new(),
+            discovered: HashSet::new(),
+            kills: HashSet::new(),
+            quests_taken: HashSet::new(),
+            quests_done: HashSet::new(),
             death: None,
         }
     }

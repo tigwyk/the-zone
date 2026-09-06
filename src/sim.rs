@@ -23,7 +23,12 @@ pub(crate) fn action_minutes(action: &Action) -> u32 {
         Action::Rest => crate::run::REST_MINUTES,
         // GDD §5: a careful look at a field is 10 minutes.
         Action::Scan | Action::ThrowBolt | Action::TakeArtifact => 10,
-        Action::Say(_) | Action::Trade(_) | Action::SetFlag(_) => 0,
+        // Talking, trading and reading a board are free (GDD §5).
+        Action::Say(_)
+        | Action::Trade(_)
+        | Action::SetFlag(_)
+        | Action::Talk(_)
+        | Action::Jobs(_) => 0,
     }
 }
 

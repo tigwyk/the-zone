@@ -1,0 +1,37 @@
+// GDD §9 lists five quest shapes. Three of them ride on state the game already
+// keeps - what you carry, where you have been, what you have killed - so those are
+// the three that exist. Escort and deliver need followers and NPC-to-NPC routes.
+{
+    "walk_the_rim": Quest(
+        name: "Walk the rim",
+        faction: "loners",
+        text: "Grisha will pay for a first-hand look at the quarry rim.",
+        goal: Reach("quarry"),
+        rubles: 400,
+        rep: 5,
+    ),
+    "grishas_pot": Quest(
+        name: "An eye for the pot",
+        faction: "loners",
+        text: "Grisha wants a Flesh eye. He will not say what for.",
+        goal: Have("flesh_eye"),
+        rubles: 800,
+        rep: 10,
+    ),
+    "cull": Quest(
+        name: "Cull the rim",
+        faction: "duty",
+        text: "Duty wants the Flesh on the quarry rim dead, not studied.",
+        goal: Kill("flesh"),
+        rubles: 1000,
+        rep: 15,
+    ),
+    "sample": Quest(
+        name: "Requisition: one artifact",
+        faction: "duty",
+        text: "Osip wants a Gravi crated and contained. It pays better than Sidorovich.",
+        goal: Have("gravi"),
+        rubles: 4000,
+        rep: 20,
+    ),
+}

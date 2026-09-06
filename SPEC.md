@@ -26,6 +26,8 @@ src/run.rs         RunState, Rng, check(), price()                    (M2)
 src/screens.rs     modal screens (creation, inventory, trade) + chrome (M2)
 src/sim.rs         clock, radiation, emissions, anomaly fields, gates    (M3)
 src/combat.rs      bands, AP turns, the enemy machine, the combat screen (M4)
+src/dialogue.rs    NPCs, menu-option dialogue, the dialogue screen        (M5)
+src/quest.rs       jobs, standing, the job board and journal screens      (M5)
 assets/data/       all game content — see §5
 PLAN.md GDD.md SPEC.md
 ```
@@ -58,6 +60,11 @@ Every screen in the game is a `build_grid`-style function that writes into the o
   crits on 5); `check_skill(&mut run, skill, .., rng)` is the one to call when the
   stalker is practising, because it also lets the skill improve on a success.
 - **All prices go through `price(item, vendor, run, buying: bool) -> u32`.**
+- **All standing changes go through `quest::adjust_rep`**, which applies GDD §9's
+  rival spill. Never write `run.rep` directly outside character creation.
+- **The area network is derived, never tabulated.** `area::exits` reads an area's own
+  Travel actions, secret exits and anomaly far side. Adding a connection means adding
+  the menu entry, and the map follows.
 - Logging is for developers; players see `MessageLine`. Any `info!` describing an
   in-game event is a bug.
 
@@ -139,7 +146,7 @@ Zone(
 | `Rest` | M2 | 8 h, heal, clear rads, costs ₽ at camp |
 | `Trade(VendorId)` | M2 | enter Trade state |
 | `Talk(NpcId)` | M5 | enter Dialogue state |
-| `Jobs(FactionId)` | M5 | job board |
+| `Jobs(FactionId)` | M5 | enter Jobs state (that faction's board) |
 | `Scan`, `ThrowBolt`, `PushThrough`, `TakeArtifact` | M3 | anomaly field verbs |
 | `SetFlag(String)` | M3 | quest/secret flag |
 
@@ -198,12 +205,31 @@ Menus have at most 5 entries — the combat menu included, which is why using an
 a fight is the footer's Inventory (4 AP) rather than a sixth verb. A secret letter must not also be a menu key (menus have
 no letter keys, so this is automatic; keep it that way).
 
-### 5.3 Later files
+### 5.3 The other data files
 
-`items.ron`, `vendors.ron`, `npc.ron`, `dialogue.ron`, `quests.ron`, `anomalies.ron`,
-`backgrounds.ron` are carved out of `zone.ron` at M5 or when a section exceeds one
-screen. Ids are lowercase snake_case strings everywhere; the loader validates that
-every referenced id exists and panics on a dangling one.
+Carved out of `zone.ron` at M5. `zone.ron` is now only `start` plus `areas` — the
+world. Beside it:
+
+| File | Holds |
+|---|---|
+| `items.ron` | `{ id: Item(name, base, kind) }` |
+| `vendors.ron` | `{ id: Vendor(name, faction, markup, artifact_markup?, stock) }` |
+| `enemies.ron` | `{ id: Enemy(...) }` |
+| `npcs.ron` | `{ id: Npc(name, faction, start, nodes) }`, dialogue included |
+| `quests.ron` | `{ id: Quest(name, faction, text, goal, rubles, rep) }` |
+| `factions.ron` | `{ id: Faction(name, rivals) }` |
+
+Anomalies stay inline in the area that has one; backgrounds stay as consts in
+`run.rs`; dialogue nests inside its NPC. Split those out when they outgrow a screen,
+not before. Ids are lowercase snake_case strings everywhere, and the loader validates
+that every referenced id exists — across files — and panics on a dangling one.
+
+A dialogue line may carry a `req`, which is a threshold and not a roll (`Skill(Skill,
+i32)`, `Rep(FactionId, i32)`, `Flag(String)`). Write the requirement into the line's
+own text in brackets, GDD-style; an unmet line still renders, greyed, and refuses.
+
+A quest `goal` is `Have(ItemId)`, `Reach(AreaId)` or `Kill(EnemyId)`. Goals are
+checked after every action and settle themselves — there is no hand-in step yet.
 
 ## 6. Input contract
 

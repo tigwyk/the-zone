@@ -241,8 +241,10 @@ sell = base × vendor_markup × (0.5 + barter/400) × rep_sell
 **Restock** on each new day and after every emission: the vendor rolls its stock table
 again. Unsold player items vanish from the vendor's list at restock.
 
-**Vendors in v1:** the camp Trader (M2), then Doctor, Gunrunner, Barkeep at faction
-posts (M5). They are content rows, not new code.
+**Vendors in v1:** the camp Trader, and at the bar and the checkpoint the Barkeep
+(0.8, food and drink), Doctor Yerin (1.2, meds) and Quartermaster Osip (1.2, weapons
+and armour, Duty). Each vendor's markup *is* its specialty, because a doctor only
+stocks meds — they are content rows, not new code.
 
 **Starting kit** (every background): 600 ₽, 1 medkit, 2 loaves, 5 bolts, no weapon or
 armour. You arrive at base camp on day 1 at 06:00.
@@ -309,7 +311,8 @@ Helping one side moves its rival the other way at half rate.
 say so in brackets: `[Barter 40] "Half that, and you throw in the bolts."`
 
 **Quests** come from job boards and NPCs. Five shapes only: fetch artifact, reach area,
-kill target, escort, deliver. Main quest: a chain of five jobs that ends with a route to
+kill target, escort, deliver. A job settles the moment its goal is met — no walk back —
+and pays rubles plus standing, which spills onto that faction's rivals at half rate. Main quest: a chain of five jobs that ends with a route to
 the center, opened by whichever faction you are highest with.
 
 **Endings** at the Room. The wish is chosen from a short list built from the run

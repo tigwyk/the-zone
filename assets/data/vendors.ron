@@ -1,0 +1,33 @@
+// GDD 7: each vendor's markup is its specialty. A doctor only stocks meds, so a
+// flat 1.2 is "1.2 on meds"; the barkeep's 0.8 is "cheap food".
+{
+    "trader": Vendor(
+        name: "Sidorovich",
+        faction: "loners",
+        markup: 1.0,
+        artifact_markup: 1.5,
+        stock: [
+            ("medkit", 3), ("bandage", 6), ("antirad", 2), ("bread", 4),
+            ("bolt", 20), ("knife", 1), ("flashlight", 1), ("pistol", 1),
+            ("jacket", 1), ("vest", 1),
+        ],
+    ),
+    "barkeep": Vendor(
+        name: "Grisha",
+        faction: "loners",
+        markup: 0.8,
+        stock: [("vodka", 8), ("bread", 6), ("tinned_meat", 6)],
+    ),
+    "doctor": Vendor(
+        name: "Doctor Yerin",
+        faction: "loners",
+        markup: 1.2,
+        stock: [("medkit", 5), ("bandage", 10), ("antirad", 5)],
+    ),
+    "gunrunner": Vendor(
+        name: "Quartermaster Osip",
+        faction: "duty",
+        markup: 1.2,
+        stock: [("pistol", 2), ("rifle", 1), ("knife", 2), ("vest", 2), ("jacket", 2)],
+    ),
+}

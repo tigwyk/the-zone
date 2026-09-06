@@ -1,0 +1,13 @@
+{
+    "flesh": Enemy(
+        name: "Flesh",
+        hp: 30,
+        ap: 7,
+        skill: 45,
+        dice: (2, 6),
+        armor: 1,
+        melee_only: true,
+        flees: true,
+        loot: [("flesh_eye", 1)],
+    ),
+}

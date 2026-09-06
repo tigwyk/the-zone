@@ -1,7 +1,9 @@
-//! The Zone — M4 (combat).
+//! The Zone — M5 (world and story).
 
 mod area;
 mod combat;
+mod dialogue;
+mod quest;
 mod render;
 mod run;
 mod screens;
@@ -13,11 +15,13 @@ use bevy::window::{PresentMode, WindowResolution};
 
 use area::{build_area_grid, Action, VendorStock, ZoneData};
 use combat::{build_combat_grid, Combat};
+use dialogue::{build_dialogue_grid, Dialogue};
+use quest::{build_board_grid, build_journal_grid, Board};
 use render::{render_grid, TileGrid};
 use run::{Rng, RunState, BACKGROUNDS, REST_COST, REST_RADS, SKILL_NAMES, TAG_COUNT};
 use screens::{
-    build_creation_grid, build_gameover_grid, build_inventory_grid, build_trade_grid, trade_list,
-    trade_one, use_item,
+    build_creation_grid, build_gameover_grid, build_inventory_grid, build_map_grid,
+    build_trade_grid, known_areas, trade_list, trade_one, use_item,
 };
 use sim::{
     action_minutes, advance, check_death, push_through, reveal_secrets, scan, take_artifact,
@@ -67,6 +71,10 @@ enum GameState {
     Inventory,
     Trade,
     Combat,
+    Dialogue,
+    Jobs,
+    Map,
+    Journal,
     GameOver,
 }
 
@@ -117,6 +125,8 @@ fn add_game(app: &mut App) -> &mut App {
         .init_resource::<GameClock>()
         .init_resource::<Fields>()
         .init_resource::<Combat>()
+        .init_resource::<Dialogue>()
+        .init_resource::<Board>()
         .init_resource::<Creation>()
         .init_resource::<TileGrid>()
         .init_state::<GameState>()
@@ -126,6 +136,10 @@ fn add_game(app: &mut App) -> &mut App {
         .add_systems(OnEnter(GameState::Inventory), enter_inventory)
         .add_systems(OnEnter(GameState::Trade), enter_trade)
         .add_systems(OnEnter(GameState::Combat), redraw_combat)
+        .add_systems(OnEnter(GameState::Dialogue), redraw_dialogue)
+        .add_systems(OnEnter(GameState::Jobs), redraw_board)
+        .add_systems(OnEnter(GameState::Map), enter_map)
+        .add_systems(OnEnter(GameState::Journal), enter_journal)
         .add_systems(OnEnter(GameState::GameOver), enter_gameover)
         .add_systems(
             Update,
@@ -135,6 +149,10 @@ fn add_game(app: &mut App) -> &mut App {
                 inventory_input.run_if(in_state(GameState::Inventory)),
                 trade_input.run_if(in_state(GameState::Trade)),
                 combat_input.run_if(in_state(GameState::Combat)),
+                dialogue_input.run_if(in_state(GameState::Dialogue)),
+                board_input.run_if(in_state(GameState::Jobs)),
+                map_input.run_if(in_state(GameState::Map)),
+                journal_input.run_if(in_state(GameState::Journal)),
                 gameover_input.run_if(in_state(GameState::GameOver)),
             )
                 .in_set(GameInput),
@@ -145,7 +163,7 @@ fn main() {
     let mut app = App::new();
     app.add_plugins(DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window {
-            title: "The Zone — M4".into(),
+            title: "The Zone — M5".into(),
             resolution: WindowResolution::new(1280, 720).with_scale_factor_override(1.0),
             present_mode: PresentMode::AutoVsync,
             ..default()
@@ -205,6 +223,7 @@ fn creation_input(
                 *run = RunState::roll(c.background, &c.tags);
                 clock.schedule(&run, &mut rng);
                 reveal_secrets(&area.0, &mut run, &zone, &mut rng);
+                run.discovered.insert(area.0.clone());
                 message.0 = "You sign the ledger and walk in.".into();
                 next_state.set(GameState::Area);
                 return;
@@ -281,6 +300,8 @@ struct Act<'w> {
     rng: ResMut<'w, Rng>,
     trade_ui: ResMut<'w, TradeUi>,
     combat: ResMut<'w, Combat>,
+    dialogue: ResMut<'w, Dialogue>,
+    board: ResMut<'w, Board>,
     zone: Res<'w, ZoneData>,
 }
 
@@ -293,6 +314,14 @@ fn menu_input(
 ) {
     if keys.just_pressed(KeyCode::Tab) {
         next_state.set(GameState::Inventory);
+        return;
+    }
+    if keys.just_pressed(KeyCode::F2) {
+        next_state.set(GameState::Map);
+        return;
+    }
+    if keys.just_pressed(KeyCode::F3) {
+        next_state.set(GameState::Journal);
         return;
     }
 
@@ -384,6 +413,17 @@ fn perform(action: &Action, act: &mut Act, next_state: &mut NextState<GameState>
             act.run.flags.insert(flag.clone());
             act.message.0 = "You read it twice, and keep it.".into();
         }
+        Action::Talk(npc) => {
+            dialogue::start(npc, &mut act.dialogue, &act.zone);
+            act.message.0.clear();
+            next_state.set(GameState::Dialogue);
+        }
+        Action::Jobs(faction) => {
+            act.board.faction = faction.clone();
+            act.board.sel = 0;
+            act.message.0.clear();
+            next_state.set(GameState::Jobs);
+        }
         Action::Scan => {
             let a = anomaly.as_ref().expect("Scan outside a field");
             act.message.0 = scan(&here, a, &mut act.run, &act.zone, &mut act.fields, &mut act.rng);
@@ -427,6 +467,11 @@ fn perform(action: &Action, act: &mut Act, next_state: &mut NextState<GameState>
     }
     let now = act.area.0.clone();
     reveal_secrets(&now, &mut act.run, &act.zone, &mut act.rng);
+    act.run.discovered.insert(now.clone());
+    let settled = quest::settle(&mut act.run, &act.zone);
+    if !settled.is_empty() {
+        act.message.0 = format!("{} {settled}", act.message.0);
+    }
 
     if check_death(&mut act.run) {
         next_state.set(GameState::GameOver);
@@ -531,6 +576,237 @@ fn combat_input(
         &area.0,
         &message.0,
     );
+}
+
+// ---- dialogue, boards, the map and the journal ----
+
+fn redraw_dialogue(
+    mut grid: ResMut<TileGrid>,
+    zone: Res<ZoneData>,
+    run: Res<RunState>,
+    clock: Res<GameClock>,
+    dialogue: Res<Dialogue>,
+    message: Res<MessageLine>,
+) {
+    build_dialogue_grid(&mut grid, &zone, &run, &clock, &dialogue, &message.0);
+}
+
+fn dialogue_input(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut grid: ResMut<TileGrid>,
+    mut act: Act,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    if keys.just_pressed(KeyCode::Escape) {
+        act.message.0.clear();
+        next_state.set(GameState::Area);
+        return;
+    }
+
+    let n = dialogue::options(&act.dialogue, &act.zone).len();
+    let mut changed = false;
+    if keys.just_pressed(KeyCode::ArrowUp) {
+        act.dialogue.sel = (act.dialogue.sel + n - 1) % n;
+        changed = true;
+    }
+    if keys.just_pressed(KeyCode::ArrowDown) {
+        act.dialogue.sel = (act.dialogue.sel + 1) % n;
+        changed = true;
+    }
+    if keys.just_pressed(KeyCode::Enter) {
+        let taken = dialogue::take(&mut act.dialogue, &act.run, &act.zone);
+        act.message.0 = taken.message;
+        // Set the fallback first: an action may well send us somewhere better.
+        if taken.close {
+            next_state.set(GameState::Area);
+        }
+        if let Some(action) = taken.action {
+            perform(&action, &mut act, &mut next_state);
+        }
+        changed = true;
+    }
+
+    if changed {
+        build_dialogue_grid(
+            &mut grid,
+            &act.zone,
+            &act.run,
+            &act.clock,
+            &act.dialogue,
+            &act.message.0,
+        );
+    }
+}
+
+fn redraw_board(
+    mut grid: ResMut<TileGrid>,
+    zone: Res<ZoneData>,
+    run: Res<RunState>,
+    clock: Res<GameClock>,
+    board: Res<Board>,
+    message: Res<MessageLine>,
+) {
+    build_board_grid(&mut grid, &zone, &run, &clock, &board, &message.0);
+}
+
+fn board_input(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut grid: ResMut<TileGrid>,
+    mut board: ResMut<Board>,
+    mut run: ResMut<RunState>,
+    mut message: ResMut<MessageLine>,
+    zone: Res<ZoneData>,
+    clock: Res<GameClock>,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    if keys.just_pressed(KeyCode::Escape) {
+        message.0.clear();
+        next_state.set(GameState::Area);
+        return;
+    }
+
+    let offered = quest::offered(&zone, &run, &board.faction);
+    let n = offered.len();
+    let mut changed = false;
+    if n > 0 {
+        if keys.just_pressed(KeyCode::ArrowUp) {
+            board.sel = (board.sel + n - 1) % n;
+            changed = true;
+        }
+        if keys.just_pressed(KeyCode::ArrowDown) {
+            board.sel = (board.sel + 1) % n;
+            changed = true;
+        }
+        if keys.just_pressed(KeyCode::Enter) {
+            let id = offered[board.sel.min(n - 1)].to_string();
+            message.0 = format!("You take the job: {}.", zone.quests[&id].name);
+            run.quests_taken.insert(id);
+            board.sel = 0;
+            changed = true;
+        }
+    }
+
+    if changed {
+        build_board_grid(&mut grid, &zone, &run, &clock, &board, &message.0);
+    }
+}
+
+fn enter_map(
+    mut cursor: ResMut<Cursor>,
+    mut grid: ResMut<TileGrid>,
+    zone: Res<ZoneData>,
+    run: Res<RunState>,
+    clock: Res<GameClock>,
+    area: Res<CurrentArea>,
+    message: Res<MessageLine>,
+) {
+    // Open the map on where you are standing.
+    cursor.0 = known_areas(&zone, &run)
+        .iter()
+        .position(|id| *id == area.0)
+        .unwrap_or(0);
+    build_map_grid(&mut grid, &zone, &run, &clock, &area.0, cursor.0, &message.0);
+}
+
+fn map_input(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut cursor: ResMut<Cursor>,
+    mut grid: ResMut<TileGrid>,
+    mut act: Act,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    if keys.just_pressed(KeyCode::Escape) || keys.just_pressed(KeyCode::F2) {
+        act.message.0.clear();
+        next_state.set(GameState::Area);
+        return;
+    }
+
+    let known = known_areas(&act.zone, &act.run);
+    let n = known.len();
+    let mut changed = false;
+    if keys.just_pressed(KeyCode::ArrowUp) {
+        cursor.0 = (cursor.0 + n - 1) % n;
+        changed = true;
+    }
+    if keys.just_pressed(KeyCode::ArrowDown) {
+        cursor.0 = (cursor.0 + 1) % n;
+        changed = true;
+    }
+    if keys.just_pressed(KeyCode::Enter) {
+        let here = act.area.0.clone();
+        let dest = known[cursor.0.min(n - 1)].clone();
+        if dest == here {
+            act.message.0 = "You are already standing there.".into();
+        } else if area::exits(&act.zone.areas[here.as_str()]).contains(&dest) {
+            // GDD 5: only somewhere next door can be walked to from the map.
+            next_state.set(GameState::Area);
+            perform(&Action::Travel(dest), &mut act, &mut next_state);
+            return;
+        } else {
+            act.message.0 = format!(
+                "{} is not next to here. You would have to walk it.",
+                act.zone.areas[&dest].name
+            );
+        }
+        changed = true;
+    }
+
+    if changed {
+        build_map_grid(
+            &mut grid,
+            &act.zone,
+            &act.run,
+            &act.clock,
+            &act.area.0,
+            cursor.0,
+            &act.message.0,
+        );
+    }
+}
+
+fn enter_journal(
+    mut cursor: ResMut<Cursor>,
+    mut grid: ResMut<TileGrid>,
+    zone: Res<ZoneData>,
+    run: Res<RunState>,
+    clock: Res<GameClock>,
+    message: Res<MessageLine>,
+) {
+    cursor.0 = 0;
+    build_journal_grid(&mut grid, &zone, &run, &clock, 0, &message.0);
+}
+
+fn journal_input(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut cursor: ResMut<Cursor>,
+    mut grid: ResMut<TileGrid>,
+    mut message: ResMut<MessageLine>,
+    zone: Res<ZoneData>,
+    run: Res<RunState>,
+    clock: Res<GameClock>,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    if keys.just_pressed(KeyCode::Escape) || keys.just_pressed(KeyCode::F3) {
+        message.0.clear();
+        next_state.set(GameState::Area);
+        return;
+    }
+
+    let n = quest::taken(&zone, &run).len();
+    let mut changed = false;
+    if n > 0 {
+        if keys.just_pressed(KeyCode::ArrowUp) {
+            cursor.0 = (cursor.0 + n - 1) % n;
+            changed = true;
+        }
+        if keys.just_pressed(KeyCode::ArrowDown) {
+            cursor.0 = (cursor.0 + 1) % n;
+            changed = true;
+        }
+    }
+    if changed {
+        build_journal_grid(&mut grid, &zone, &run, &clock, cursor.0, &message.0);
+    }
 }
 
 // ---- inventory ----
@@ -810,15 +1086,16 @@ mod playthrough {
             self.choose("Push Through")
         }
 
-        /// Picks an item out of the open inventory by name and uses it.
-        fn choose_item(&mut self, name: &str) -> &mut Self {
-            for _ in 0..12 {
-                if (4..16).any(|y| self.row(y).starts_with(&format!("> {name}"))) {
+        /// Picks a row out of any list screen - inventory, board, map, dialogue -
+        /// by the text it starts with, and confirms it.
+        fn choose_listed(&mut self, name: &str) -> &mut Self {
+            for _ in 0..14 {
+                if (4..18).any(|y| self.row(y).starts_with(&format!("> {name}"))) {
                     return self.press(KeyCode::Enter);
                 }
                 self.press(KeyCode::ArrowDown);
             }
-            panic!("no item `{name}` on:\n{}", self.screen());
+            panic!("no row `{name}` on:\n{}", self.screen());
         }
 
         /// Plays the fight out: shoot when the weapon reaches, otherwise close.
@@ -967,7 +1244,7 @@ mod playthrough {
         sim.run_mut().hp = 10;
         sim.press(KeyCode::Tab);
         assert_eq!(sim.state(), GameState::Inventory);
-        sim.choose_item("Medkit");
+        sim.choose_listed("Medkit");
         assert!(sim.run().hp > 10, "the medkit went in");
         assert_eq!(sim.combat().ap, ap - combat::AP_ITEM, "and it cost 4 AP");
         sim.press(KeyCode::Tab);
@@ -999,6 +1276,125 @@ mod playthrough {
         }
         assert_eq!(sim.state(), GameState::GameOver);
         sim.assert_shows("THE ZONE IS STILL THERE");
+    }
+
+    #[test]
+    fn grisha_will_not_hear_an_argument_you_cannot_make() {
+        let mut sim = Sim::new();
+        sim.roll_a_stalker();
+        sim.choose("The bar");
+        sim.assert_shows("A shed with a plank for a bar");
+
+        sim.choose("Talk to Grisha");
+        assert_eq!(sim.state(), GameState::Dialogue);
+        sim.assert_shows("Everyone who walks here wants something");
+
+        // The gated line is on screen - that is the point of the brackets - but a
+        // starting Loner cannot say it.
+        sim.assert_shows("[Barter 45]");
+        sim.choose_listed("[Barter 45]");
+        assert_eq!(sim.state(), GameState::Dialogue, "a blocked line goes nowhere");
+        sim.assert_shows("not the one to make that argument");
+
+        // Learn to haggle and the same line opens, and carries you to his shelf.
+        sim.run_mut().skills[Skill::Barter.index()] = 45;
+        sim.choose_listed("[Barter 45]");
+        sim.assert_shows("For you, cost");
+        sim.choose_listed("Let me see the shelf.");
+        assert_eq!(sim.state(), GameState::Trade);
+        sim.assert_shows("TRADE - Grisha");
+        sim.assert_shows("Vodka");
+
+        sim.press(KeyCode::Escape);
+        assert_eq!(sim.state(), GameState::Area);
+    }
+
+    #[test]
+    fn a_job_off_the_board_pays_when_you_do_it() {
+        let mut sim = Sim::new();
+        sim.roll_a_stalker();
+        sim.choose("The bar");
+        sim.choose("Job board");
+        assert_eq!(sim.state(), GameState::Jobs);
+        sim.assert_shows("JOB BOARD - Loners");
+        sim.assert_shows("An eye for the pot");
+
+        sim.choose_listed("Walk the rim");
+        assert!(sim.run().quests_taken.contains("walk_the_rim"));
+        sim.press(KeyCode::Escape);
+        assert_eq!(sim.state(), GameState::Area);
+
+        // The journal is where a taken job lives, alongside your standing.
+        sim.press(KeyCode::F3);
+        assert_eq!(sim.state(), GameState::Journal);
+        sim.assert_shows("Walk the rim");
+        sim.assert_shows("Loners");
+        sim.press(KeyCode::Escape);
+
+        // Do the job. It settles the moment the goal is met.
+        let purse = sim.run().rubles;
+        let standing = sim.run().rep_of("loners");
+        sim.choose("Outside");
+        sim.arm_with("pistol");
+        sim.walk_to_the_rim();
+        assert!(sim.run().quests_done.contains("walk_the_rim"), "{}", sim.screen());
+        assert_eq!(sim.run().rubles, purse + 400);
+        assert!(sim.run().rep_of("loners") > standing);
+        // Helping the Loners costs you with the people they hate (GDD 9).
+        assert!(sim.run().rep_of("bandits") < 0);
+    }
+
+    #[test]
+    fn the_map_walks_you_next_door_and_no_further() {
+        let mut sim = Sim::new();
+        sim.roll_a_stalker();
+        sim.choose("Travel");
+        sim.choose("Cut toward the field");
+
+        sim.press(KeyCode::F2);
+        assert_eq!(sim.state(), GameState::Map);
+        sim.assert_shows("you are here");
+        // Only what you have stood in is on it (GDD 5).
+        sim.assert_shows("The Whirligig Field");
+        assert!(!sim.shows("Checkpoint 4"), "you have never been north:\n{}", sim.screen());
+
+        // The camp is known, but it is two areas away.
+        sim.choose_listed("Base Camp");
+        assert_eq!(sim.state(), GameState::Map);
+        sim.assert_shows("not next to here");
+
+        // The road is next door, so the map walks you there.
+        sim.choose_listed("The Road");
+        assert_eq!(sim.state(), GameState::Area);
+        sim.assert_shows("A dirt road between the camp and the wastes");
+    }
+
+    #[test]
+    fn the_new_posts_carry_their_own_vendors_and_boards() {
+        let mut sim = Sim::new();
+        sim.roll_a_stalker();
+        sim.choose("Travel");
+        sim.choose("North, to the checkpoint");
+        sim.assert_shows("A checkpoint of sandbags");
+
+        // Duty runs its own board, and its own quartermaster.
+        sim.choose("Quartermaster");
+        assert_eq!(sim.state(), GameState::Trade);
+        sim.assert_shows("TRADE - Quartermaster Osip");
+        sim.assert_shows("Abakan Rifle");
+        sim.press(KeyCode::Escape);
+
+        sim.choose("Job board");
+        sim.assert_shows("JOB BOARD - Duty");
+        sim.assert_shows("Cull the rim");
+        assert!(!sim.shows("An eye for the pot"), "that is Loner work");
+        sim.press(KeyCode::Escape);
+
+        // Osip's own gated line needs Duty standing, which a Loner has none of.
+        sim.choose("Talk to Osip");
+        sim.assert_shows("Duty holds this road");
+        sim.choose_listed("[Duty 25]");
+        sim.assert_shows("not the one to make that argument");
     }
 
     #[test]

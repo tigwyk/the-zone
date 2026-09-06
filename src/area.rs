@@ -7,6 +7,8 @@ use std::path::Path;
 use bevy::prelude::*;
 use serde::Deserialize;
 
+use crate::dialogue::NpcData;
+use crate::quest::QuestData;
 use crate::render::{Glyph, TileGrid, PALETTE};
 use crate::run::{RunState, Skill};
 use crate::screens::draw_chrome;
@@ -23,12 +25,14 @@ pub(crate) const MESSAGE_ROW: usize = 27;
 struct Zone {
     start: String,
     areas: HashMap<String, Area>,
-    #[serde(default)]
-    items: HashMap<String, ItemData>,
-    #[serde(default)]
-    vendors: HashMap<String, VendorData>,
-    #[serde(default)]
-    enemies: HashMap<String, EnemyData>,
+}
+
+/// A faction and the ones it cannot stand (GDD §9).
+#[derive(Deserialize, Clone)]
+#[serde(rename = "Faction")]
+pub(crate) struct FactionData {
+    pub name: String,
+    pub rivals: Vec<String>,
 }
 
 /// One thing that fights back (GDD §8).
@@ -95,6 +99,8 @@ pub(crate) enum Action {
     PushThrough,
     TakeArtifact,
     SetFlag(String),
+    Talk(String),
+    Jobs(String),
 }
 
 /// An anomaly field: the danger of walking in, what it does to you, what it hides.
@@ -170,6 +176,9 @@ pub(crate) struct ZoneData {
     pub items: HashMap<String, ItemData>,
     pub vendors: HashMap<String, VendorData>,
     pub enemies: HashMap<String, EnemyData>,
+    pub npcs: HashMap<String, NpcData>,
+    pub quests: HashMap<String, QuestData>,
+    pub factions: HashMap<String, FactionData>,
 }
 
 impl FromWorld for ZoneData {
@@ -198,12 +207,14 @@ impl FromWorld for VendorStock {
 
 // ---- loading ----
 
+/// Reads one RON file or dies naming it (SPEC §5: a load error is a panic).
+fn read_ron<T: serde::de::DeserializeOwned>(path: &Path) -> T {
+    let text = fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    ron::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+}
+
 pub(crate) fn load_zone(data_dir: &Path) -> ZoneData {
-    let zone_path = data_dir.join("zone.ron");
-    let text =
-        fs::read_to_string(&zone_path).unwrap_or_else(|e| panic!("{}: {e}", zone_path.display()));
-    let zone: Zone =
-        ron::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", zone_path.display()));
+    let zone: Zone = read_ron(&data_dir.join("zone.ron"));
 
     let mut areas = HashMap::new();
     for (id, a) in zone.areas {
@@ -241,9 +252,12 @@ pub(crate) fn load_zone(data_dir: &Path) -> ZoneData {
     let data = ZoneData {
         start: zone.start,
         areas,
-        items: zone.items,
-        vendors: zone.vendors,
-        enemies: zone.enemies,
+        items: read_ron(&data_dir.join("items.ron")),
+        vendors: read_ron(&data_dir.join("vendors.ron")),
+        enemies: read_ron(&data_dir.join("enemies.ron")),
+        npcs: read_ron(&data_dir.join("npcs.ron")),
+        quests: read_ron(&data_dir.join("quests.ron")),
+        factions: read_ron(&data_dir.join("factions.ron")),
     };
     data.validate_ids();
     data
@@ -260,6 +274,14 @@ impl ZoneData {
             Action::Trade(v) => assert!(
                 self.vendors.contains_key(v),
                 "zone.ron: {where_} trades with unknown vendor '{v}'"
+            ),
+            Action::Talk(npc) => assert!(
+                self.npcs.contains_key(npc),
+                "zone.ron: {where_} talks to unknown npc '{npc}'"
+            ),
+            Action::Jobs(f) => assert!(
+                self.factions.contains_key(f),
+                "zone.ron: {where_} opens a board for unknown faction '{f}'"
             ),
             _ => {}
         };
@@ -312,7 +334,62 @@ impl ZoneData {
                 );
             }
         }
+        // Everything the story files point at has to exist too (SPEC §5.3).
+        for (id, npc) in &self.npcs {
+            assert!(
+                npc.nodes.contains_key(&npc.start),
+                "npcs.ron: '{id}' starts at missing node '{}'",
+                npc.start
+            );
+            for (node_id, node) in &npc.nodes {
+                for line in &node.options {
+                    if let Some(goto) = &line.goto {
+                        assert!(
+                            npc.nodes.contains_key(goto),
+                            "npcs.ron: '{id}/{node_id}' goes to missing node '{goto}'"
+                        );
+                    }
+                    if let Some(action) = &line.action {
+                        check(action, &format!("npc {id}/{node_id}"));
+                    }
+                }
+            }
+        }
+        for (id, quest) in &self.quests {
+            assert!(
+                self.factions.contains_key(&quest.faction),
+                "quests.ron: '{id}' belongs to unknown faction '{}'",
+                quest.faction
+            );
+            match &quest.goal {
+                crate::quest::Goal::Have(item) => assert!(
+                    self.items.contains_key(item),
+                    "quests.ron: '{id}' wants unknown item '{item}'"
+                ),
+                crate::quest::Goal::Reach(area) => assert!(
+                    self.areas.contains_key(area),
+                    "quests.ron: '{id}' sends you to unknown area '{area}'"
+                ),
+                crate::quest::Goal::Kill(enemy) => assert!(
+                    self.enemies.contains_key(enemy),
+                    "quests.ron: '{id}' wants unknown enemy '{enemy}' dead"
+                ),
+            }
+        }
+        for (id, faction) in &self.factions {
+            for rival in &faction.rivals {
+                assert!(
+                    self.factions.contains_key(rival),
+                    "factions.ron: '{id}' hates unknown faction '{rival}'"
+                );
+            }
+        }
         for (id, v) in &self.vendors {
+            assert!(
+                self.factions.contains_key(&v.faction),
+                "vendors.ron: '{id}' belongs to unknown faction '{}'",
+                v.faction
+            );
             for (item, _) in &v.stock {
                 assert!(
                     self.items.contains_key(item),
@@ -458,6 +535,28 @@ pub(crate) fn build_area_grid(
     draw_chrome(grid, run, clock);
 }
 
+/// Everywhere this area leads: menu exits, secret exits, and the far side of an
+/// anomaly. The map network is derived from this, so there is no adjacency table.
+pub(crate) fn exits(area: &AreaData) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let actions = area
+        .menu
+        .iter()
+        .map(|(_, a)| a)
+        .chain(area.secrets.values().map(|s| &s.action));
+    for action in actions {
+        if let Action::Travel(dest) = action {
+            out.push(dest.clone());
+        }
+    }
+    if let Some(anomaly) = &area.anomaly {
+        out.push(anomaly.beyond.clone());
+    }
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
 /// Rows 0-17: the scene itself. Combat draws over the rest of the screen but keeps
 /// this, so a fight happens somewhere (GDD §8).
 pub(crate) fn draw_art(
@@ -533,7 +632,12 @@ mod tests {
     fn loads_zone_data() {
         let zone = load_zone(Path::new("assets/data"));
         assert_eq!(zone.start, "camp");
-        assert_eq!(zone.areas.len(), 5);
+        assert_eq!(zone.areas.len(), 7);
+        assert!(zone.npcs.contains_key("grisha"));
+        assert!(zone.quests.contains_key("cull"));
+        assert_eq!(zone.factions.len(), 7);
+        // The network is derived, not tabulated.
+        assert_eq!(exits(&zone.areas["field"]), vec!["quarry", "road"]);
         assert!(zone.areas["camp"].secrets.contains_key(&'D'));
         assert!(zone.areas["field"].anomaly.is_some());
         assert_eq!(zone.areas["camp"].secret_cells, vec![(13, 14, 'D')]);

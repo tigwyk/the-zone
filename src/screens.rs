@@ -45,12 +45,30 @@ pub(crate) fn draw_chrome(grid: &mut TileGrid, run: &RunState, clock: &GameClock
     grid.text(0, FOOTER_ROW, footer, PALETTE.menu, false);
 }
 
-fn title(grid: &mut TileGrid, s: &str) {
+pub(crate) fn title(grid: &mut TileGrid, s: &str) {
     grid.text(0, 0, s, PALETTE.menu_sel, true);
 }
 
-fn hint(grid: &mut TileGrid, s: &str) {
+pub(crate) fn hint(grid: &mut TileGrid, s: &str) {
     grid.text(0, HINT_ROW, s, PALETTE.dim, false);
+}
+
+/// Greedy word wrap. Prose written for the screen is short; this is for the lines
+/// that come out of dialogue and job text, which are not.
+pub(crate) fn wrap(text: &str, width: usize) -> Vec<String> {
+    let mut lines = vec![String::new()];
+    for word in text.split_whitespace() {
+        let line = lines.last_mut().expect("never empty");
+        if line.is_empty() {
+            line.push_str(word);
+        } else if line.chars().count() + 1 + word.chars().count() <= width {
+            line.push(' ');
+            line.push_str(word);
+        } else {
+            lines.push(word.to_string());
+        }
+    }
+    lines
 }
 
 /// One selectable list row.
@@ -360,6 +378,67 @@ fn take_stock(stock: &mut VendorStock, vendor_id: &str, id: &str) {
             shelf.remove(i);
         }
     }
+}
+
+// ---- the map (GDD §5) ----
+
+/// Areas you have been to, each with the ways out that you know about.
+/// `ponytail:` generated, not a hand-drawn `map.area` scene, so it cannot hide a
+/// letter yet. Authoring one is a content job; the mechanic below would not change.
+pub(crate) fn known_areas(zone: &ZoneData, run: &RunState) -> Vec<String> {
+    let mut ids: Vec<String> = run
+        .discovered
+        .iter()
+        .filter(|id| zone.areas.contains_key(*id))
+        .cloned()
+        .collect();
+    ids.sort_unstable();
+    ids
+}
+
+pub(crate) fn build_map_grid(
+    grid: &mut TileGrid,
+    zone: &ZoneData,
+    run: &RunState,
+    clock: &GameClock,
+    here: &str,
+    sel: usize,
+    message: &str,
+) {
+    grid.clear();
+    title(grid, "THE ZONE - what you know of it");
+
+    let known = known_areas(zone, run);
+    let next_door = crate::area::exits(&zone.areas[here]);
+    for (i, id) in known.iter().enumerate() {
+        let area = &zone.areas[id];
+        let selected = i == sel;
+        let standing = if id == here {
+            "you are here"
+        } else if next_door.contains(id) {
+            "next door"
+        } else {
+            ""
+        };
+        let fg = if selected { PALETTE.menu_sel } else { PALETTE.menu };
+        grid.text(0, LIST_ROW + i, if selected { "> " } else { "  " }, fg, false);
+        grid.text(2, LIST_ROW + i, &format!("{:<24}{standing}", area.name), fg, false);
+
+        // The network: where this one leads, as far as you have found out.
+        let onward: Vec<&str> = crate::area::exits(area)
+            .iter()
+            .filter(|d| run.discovered.contains(*d))
+            .map(|d| zone.areas[d].name.as_str())
+            .collect();
+        if !onward.is_empty() {
+            let line = format!("-> {}", onward.join(", "));
+            grid.text(40, LIST_ROW + i, &line, PALETTE.dim, false);
+        }
+    }
+
+    grid.text(0, MESSAGE_ROW, message, PALETTE.desc, false);
+    hint(grid, "Up/Down read   Enter walk there if it is next door   Esc back");
+    draw_chrome(grid, run, clock);
 }
 
 // ---- the end of a run ----

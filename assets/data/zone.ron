@@ -1,3 +1,5 @@
+// The world: where you can stand and what you can do there. Items, vendors,
+// enemies, NPCs, quests and factions live in their own files (SPEC §5.3).
 Zone(
     start: "camp",
     areas: {
@@ -8,12 +10,28 @@ Zone(
             menu: [
                 ("Travel", Travel("road")),
                 ("Trade", Trade("trader")),
+                ("The bar", Travel("bar")),
                 ("Rest", Rest),
                 ("Look", Say("The fire pops. The lantern gutters.")),
-                ("Talk", Say("The trader grunts. That is the whole conversation.")),
             ],
             secrets: {
                 'D': Secret(action: Travel("hatch")),
+            },
+        ),
+        "bar": Area(
+            name: "The Bar",
+            art: "bar",
+            shelter: true,
+            menu: [
+                ("Talk to Grisha", Talk("grisha")),
+                ("Buy a drink", Trade("barkeep")),
+                ("See the doctor", Trade("doctor")),
+                ("Job board", Jobs("loners")),
+                ("Outside", Travel("camp")),
+            ],
+            secrets: {
+                'K': Secret(action: Say("The keg is empty. Someone has been at it from behind."),
+                            gate: Some(Check(StalkerLore, -20))),
             },
         ),
         "hatch": Area(
@@ -34,8 +52,22 @@ Zone(
             menu: [
                 ("Travel", Travel("camp")),
                 ("Cut toward the field", Travel("field")),
+                ("North, to the checkpoint", Travel("duty_post")),
                 ("Look", Say("The road runs east, toward the wastes.")),
                 ("Search", Say("You find a spent cartridge.")),
+            ],
+            secrets: {},
+        ),
+        "duty_post": Area(
+            name: "Checkpoint 4",
+            art: "duty_post",
+            shelter: true,
+            menu: [
+                ("Talk to Osip", Talk("osip")),
+                ("Quartermaster", Trade("gunrunner")),
+                ("Job board", Jobs("duty")),
+                ("Look", Say("Black and red patches. Nobody is smiling.")),
+                ("South, to the road", Travel("road")),
             ],
             secrets: {},
         ),
@@ -76,54 +108,6 @@ Zone(
                 'S': Secret(action: Say("The log was right. The crate holds two medkits and a bolt tin."),
                             gate: Some(Flag("read_the_log"))),
             },
-        ),
-    },
-    // ponytail: items and vendors live here until a section outgrows a screen (SPEC §5.3).
-    items: {
-        "medkit": Item(name: "Medkit", base: 250, kind: Heal(25)),
-        "bandage": Item(name: "Bandage", base: 60, kind: Heal(8)),
-        "antirad": Item(name: "Antirad", base: 300, kind: Antirad(150)),
-        "bread": Item(name: "Stale Loaf", base: 40, kind: Heal(4)),
-        "bolt": Item(name: "Bolt", base: 5, kind: Misc),
-        "flashlight": Item(name: "Flashlight", base: 200, kind: Light),
-        "knife": Item(name: "Hunting Knife", base: 150, kind: Weapon(dice: (1, 8), skill: Melee)),
-        "pistol": Item(name: "PMm Pistol", base: 900, kind: Weapon(dice: (2, 6), skill: SmallGuns)),
-        "jacket": Item(name: "Leather Jacket", base: 400, kind: Armor(2)),
-        "vest": Item(name: "Stalker Vest", base: 1400, kind: Armor(5)),
-        "gravi": Item(name: "Gravi", base: 3000, kind: Artifact(attr: 0, bonus: 1, rads: 4)),
-        "flesh_eye": Item(name: "Flesh Eye", base: 400, kind: Misc),
-    },
-    enemies: {
-        "flesh": Enemy(
-            name: "Flesh",
-            hp: 30,
-            ap: 7,
-            skill: 45,
-            dice: (2, 6),
-            armor: 1,
-            melee_only: true,
-            flees: true,
-            loot: [("flesh_eye", 1)],
-        ),
-    },
-    vendors: {
-        "trader": Vendor(
-            name: "Sidorovich",
-            faction: "loners",
-            markup: 1.0,
-            artifact_markup: 1.5,
-            stock: [
-                ("medkit", 3),
-                ("bandage", 6),
-                ("antirad", 2),
-                ("bread", 4),
-                ("bolt", 20),
-                ("knife", 1),
-                ("flashlight", 1),
-                ("pistol", 1),
-                ("jacket", 1),
-                ("vest", 1),
-            ],
         ),
     },
 )

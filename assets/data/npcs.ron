@@ -1,0 +1,82 @@
+// Menu-option dialogue (GDD §9). A line may require a skill, attribute or rep
+// threshold; write the requirement into the text in brackets, the way the GDD does.
+// An unmet line still shows, greyed, so the player learns what they are short of.
+{
+    "grisha": Npc(
+        name: "Grisha",
+        faction: "loners",
+        start: "hello",
+        nodes: {
+            "hello": Node(
+                text: "You walked here. Everyone who walks here wants something. Sit.",
+                options: [
+                    Line(text: "What is the talk?", goto: Some("rumour")),
+                    Line(
+                        text: "[Barter 45] Your prices are an insult.",
+                        req: Some(Skill(Barter, 45)),
+                        goto: Some("haggle"),
+                    ),
+                    Line(
+                        text: "[Loners 25] You know me. Anything you are holding back?",
+                        req: Some(Rep("loners", 25)),
+                        goto: Some("trusted"),
+                    ),
+                    Line(text: "Nothing. I am just passing.", goto: None),
+                ],
+            ),
+            "rumour": Node(
+                text: "A Flesh took up on the quarry rim. Somebody should do something.",
+                options: [
+                    Line(text: "Somebody should.", goto: Some("hello")),
+                    Line(text: "I will keep it in mind.", action: Some(SetFlag("heard_the_rumour")), goto: None),
+                ],
+            ),
+            "haggle": Node(
+                text: "Fine. For you, cost. Do not tell the others what you paid.",
+                options: [
+                    Line(text: "Let me see the shelf.", action: Some(Trade("barkeep")), goto: None),
+                    Line(text: "Later.", goto: Some("hello")),
+                ],
+            ),
+            "trusted": Node(
+                text: "There is a hatch under the camp. You did not hear it from me.",
+                options: [Line(text: "I did not.", goto: Some("hello"))],
+            ),
+        },
+    ),
+    "osip": Npc(
+        name: "Quartermaster Osip",
+        faction: "duty",
+        start: "hello",
+        nodes: {
+            "hello": Node(
+                text: "Duty holds this road. State your business, stalker.",
+                options: [
+                    Line(text: "I want to buy.", action: Some(Trade("gunrunner")), goto: None),
+                    Line(text: "What is Duty doing out here?", goto: Some("creed")),
+                    Line(
+                        text: "[Duty 25] Anything you cannot requisition through channels?",
+                        req: Some(Rep("duty", 25)),
+                        goto: Some("favour"),
+                    ),
+                    Line(text: "Nothing.", goto: None),
+                ],
+            ),
+            "creed": Node(
+                text: "The Zone stays in the Zone. That is the whole of it.",
+                options: [Line(text: "And the artifacts?", goto: Some("artifacts"))],
+            ),
+            "artifacts": Node(
+                text: "Contained. Studied. Not sold to whoever walks in off the road.",
+                options: [Line(text: "Understood.", goto: Some("hello"))],
+            ),
+            "favour": Node(
+                text: "The board is yours, then. Take something off it before you go.",
+                options: [
+                    Line(text: "Show me the board.", action: Some(Jobs("duty")), goto: None),
+                    Line(text: "Another time.", goto: Some("hello")),
+                ],
+            ),
+        },
+    ),
+}
