@@ -89,7 +89,7 @@ pub(crate) fn taken<'a>(zone: &'a ZoneData, run: &RunState) -> Vec<&'a str> {
 
 fn done(goal: &Goal, run: &RunState) -> bool {
     match goal {
-        Goal::Have(item) => run.items.iter().any(|(id, n)| id == item && *n > 0),
+        Goal::Have(item) => run.count_of(item) > 0,
         Goal::Reach(area) => run.discovered.contains(area),
         Goal::Kill(enemy) => run.kills.contains(enemy),
     }
@@ -284,7 +284,7 @@ mod tests {
         let msg = settle(&mut run, &zone);
         assert!(msg.contains("An eye for the pot"), "{msg}");
         assert_eq!(run.rubles, purse + zone.quests["grishas_pot"].rubles);
-        assert!(!run.items.iter().any(|(i, _)| i == "flesh_eye"), "you handed it over");
+        assert_eq!(run.count_of("flesh_eye"), 0, "you handed it over");
         assert!(run.quests_done.contains("grishas_pot"));
         assert_eq!(run.rep_of("loners"), 30);
 

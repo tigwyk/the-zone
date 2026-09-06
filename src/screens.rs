@@ -3,6 +3,7 @@
 
 use crate::area::{ItemKind, VendorData, VendorStock, ZoneData, MESSAGE_ROW};
 use crate::render::{TileGrid, PALETTE};
+use crate::loot::{self, AffixData, Effect, ItemStack, Rarity};
 use crate::meta::MetaProgress;
 use crate::run::{
     price, Rng, RunState, ATTR_NAMES, BACKGROUNDS, BARTER, SKILL_NAMES, TAG_COUNT,
@@ -203,17 +204,45 @@ pub(crate) fn build_inventory_grid(
     }
     let shown = window(sel, run.items.len(), PACK_ROWS);
     for (line_no, i) in shown.clone().enumerate() {
-        let (id, n) = &run.items[i];
-        let item = &zone.items[id];
-        let slot = match (run.weapon.as_deref(), run.armor.as_deref()) {
-            (Some(w), _) if w == id => " [wielded]",
-            (_, Some(a)) if a == id => " [worn]",
+        let stack = &run.items[i];
+        let slot = match (run.weapon, run.armor) {
+            (Some(w), _) if w == stack.uid => " [wielded]",
+            (_, Some(a)) if a == stack.uid => " [worn]",
             _ => "",
         };
-        let label = format!("{:<20}{:>3}{}", item.name, n, slot);
-        row(grid, 0, LIST_ROW + line_no, i == sel, &label);
+        let count = if stack.count > 1 { format!("{:>3}", stack.count) } else { "   ".into() };
+        let label = format!("{:<34}{count}{slot}", loot::display_name(stack, zone));
+        // The colour is the rarity: how much of the Zone got into it.
+        let rarity = stack.rarity();
+        let fg = if i == sel { PALETTE.menu_sel } else { rarity.color() };
+        grid.text(0, LIST_ROW + line_no, if i == sel { "> " } else { "  " }, fg, false);
+        grid.text(2, LIST_ROW + line_no, &label, fg, rarity >= Rarity::Warped);
     }
     more(grid, LIST_ROW + PACK_ROWS, &shown, run.items.len());
+
+    // The highlighted thing, read out: what it is and what the Zone put on it.
+    if let Some(stack) = run.items.get(sel) {
+        let mut y = LIST_ROW + PACK_ROWS + 2;
+        let rarity = stack.rarity();
+        let head = if rarity == Rarity::Plain {
+            format!("{}   {} RU", loot::display_name(stack, zone), loot::value(stack, zone))
+        } else {
+            format!(
+                "{}   {}   {} RU",
+                loot::display_name(stack, zone),
+                rarity.name(),
+                loot::value(stack, zone)
+            )
+        };
+        grid.text(2, y, &head, rarity.color(), rarity >= Rarity::Warped);
+        y += 1;
+        for roll in &stack.affixes {
+            if let Some(affix) = zone.affixes.get(&roll.affix) {
+                grid.text(4, y, &affix_line(affix, roll.magnitude), PALETTE.desc, false);
+                y += 1;
+            }
+        }
+    }
 
     // What the artifacts are costing you, if anything.
     let per_hour = artifact_rads_per_hour(run, zone);
@@ -245,12 +274,28 @@ pub(crate) fn build_inventory_grid(
     draw_chrome(grid, run, clock);
 }
 
+/// One roll in words: what it does and by how much.
+fn affix_line(affix: &AffixData, magnitude: i32) -> String {
+    let what = match affix.effect {
+        Effect::Damage => "damage".to_string(),
+        Effect::ToHit => "to hit".to_string(),
+        Effect::Armor => "damage resistance".to_string(),
+        Effect::Crit => "crit range".to_string(),
+        Effect::Attr(i) => ATTR_NAMES[i].to_string(),
+        Effect::Rads => "rads an hour".to_string(),
+    };
+    format!("{magnitude:+} {what}")
+}
+
 /// Uses or equips one item. Returns the message line, and whether anything actually
 /// happened - a medkit at full health costs no AP because it never left the pack.
 pub(crate) fn use_item(zone: &ZoneData, run: &mut RunState, index: usize) -> (String, bool) {
-    let Some((id, _)) = run.items.get(index).cloned() else {
+    let Some(stack) = run.items.get(index).cloned() else {
         return (String::new(), false);
     };
+    let id = stack.id.clone();
+    let uid = stack.uid;
+    let name = loot::display_name(&stack, zone);
     let item = zone.items[&id].clone();
     match item.kind {
         ItemKind::Heal(n) => {
@@ -260,7 +305,7 @@ pub(crate) fn use_item(zone: &ZoneData, run: &mut RunState, index: usize) -> (St
             }
             run.hp += healed;
             run.take_item(&id, 1);
-            (format!("You use the {}. HP +{healed}.", item.name), true)
+            (format!("You use the {name}. HP +{healed}."), true)
         }
         ItemKind::Antirad(n) => {
             if run.rads == 0 {
@@ -269,25 +314,25 @@ pub(crate) fn use_item(zone: &ZoneData, run: &mut RunState, index: usize) -> (St
             let cleared = run.rads.min(n);
             run.rads -= cleared;
             run.take_item(&id, 1);
-            (format!("You use the {}. RAD -{cleared}.", item.name), true)
+            (format!("You use the {name}. RAD -{cleared}."), true)
         }
         ItemKind::Weapon { .. } => {
-            let off = run.weapon.as_deref() == Some(id.as_str());
-            run.weapon = if off { None } else { Some(id) };
-            (format!("You {} the {}.", if off { "stow" } else { "ready" }, item.name), true)
+            let off = run.weapon == Some(uid);
+            run.weapon = if off { None } else { Some(uid) };
+            (format!("You {} the {name}.", if off { "stow" } else { "ready" }), true)
         }
         ItemKind::Armor(_) => {
-            let off = run.armor.as_deref() == Some(id.as_str());
-            run.armor = if off { None } else { Some(id) };
-            (format!("You {} the {}.", if off { "take off" } else { "put on" }, item.name), true)
+            let off = run.armor == Some(uid);
+            run.armor = if off { None } else { Some(uid) };
+            (format!("You {} the {name}.", if off { "take off" } else { "put on" }), true)
         }
         // Artifacts work by being carried; there is nothing to press (GDD §6).
         ItemKind::Artifact { rads, .. } => (
-            format!("The {} hums against your hip. {rads} rads an hour.", item.name),
+            format!("The {name} hums against your hip. {rads} rads an hour."),
             false,
         ),
-        ItemKind::Light => (format!("The {} is on whenever you carry it.", item.name), false),
-        ItemKind::Misc => (format!("The {} is not much use here.", item.name), false),
+        ItemKind::Light => (format!("The {name} is on whenever you carry it."), false),
+        ItemKind::Misc => (format!("The {name} is not much use here."), false),
     }
 }
 
@@ -299,7 +344,7 @@ pub(crate) fn trade_list<'a>(
     run: &'a RunState,
     vendor_id: &str,
     buying: bool,
-) -> &'a Vec<(String, u32)> {
+) -> &'a Vec<ItemStack> {
     if buying {
         &stock.0[vendor_id]
     } else {
@@ -361,18 +406,22 @@ pub(crate) fn build_trade_grid(
         let empty = if buying { "The trader has nothing left." } else { "You have nothing to sell." };
         grid.text(2, LIST_ROW, empty, PALETTE.desc, false);
     }
-    for (i, (id, n)) in list.iter().enumerate() {
-        let item = &zone.items[id];
+    for (i, stack) in list.iter().enumerate() {
+        let item = &zone.items[&stack.id];
         let p = price(
-            item.base,
+            loot::value(stack, zone),
             markup_for(vendor, item.kind),
             run.skills[BARTER],
             rep,
             buying,
         );
         let p = p.map_or("--".to_string(), |v| v.to_string());
-        let label = format!("{:<22}{:>3}{:>9} RU", item.name, n, p);
-        row(grid, 0, LIST_ROW + i, i == sel, &label);
+        let count = if stack.count > 1 { format!("{:>3}", stack.count) } else { "   ".into() };
+        let label = format!("{:<30}{count}{p:>9} RU", loot::display_name(stack, zone));
+        let rarity = stack.rarity();
+        let fg = if i == sel { PALETTE.menu_sel } else { rarity.color() };
+        grid.text(0, LIST_ROW + i, if i == sel { "> " } else { "  " }, fg, false);
+        grid.text(2, LIST_ROW + i, &label, fg, rarity >= Rarity::Warped);
     }
 
     draw_message(grid, message);
@@ -393,12 +442,13 @@ pub(crate) fn trade_one(
     let rep = run.rep_of(&vendor.faction);
 
     let list = trade_list(stock, run, vendor_id, buying);
-    let Some((id, _)) = list.get(sel).cloned() else {
+    let Some(stack) = list.get(sel).cloned() else {
         return String::new();
     };
-    let item = &zone.items[&id];
+    let item = &zone.items[&stack.id];
+    let name = loot::display_name(&stack, zone);
     let Some(p) = price(
-        item.base,
+        loot::value(&stack, zone),
         markup_for(vendor, item.kind),
         run.skills[BARTER],
         rep,
@@ -409,33 +459,37 @@ pub(crate) fn trade_one(
 
     if buying {
         if run.rubles < p {
-            return format!("You cannot afford the {}.", item.name);
+            return format!("You cannot afford the {name}.");
         }
         run.rubles -= p;
-        run.add_item(&id, 1);
-        take_stock(stock, vendor_id, &id);
-        format!("You buy the {} for {p} RU.", item.name)
+        // One off the shelf, with whatever is on it, and a uid of its own.
+        let uid = run.next_uid();
+        let bought = ItemStack { uid, count: 1, ..stack.clone() };
+        run.add_stack(bought);
+        take_one(stock, vendor_id, sel);
+        format!("You buy the {name} for {p} RU.")
     } else {
-        if !run.take_item(&id, 1) {
+        let Some(sold) = run.take_uid(stack.uid) else {
             return String::new();
-        }
+        };
         run.rubles += p;
         let shelf = stock.0.get_mut(vendor_id).expect("vendor stock");
-        match shelf.iter_mut().find(|(i, _)| *i == id) {
-            Some(slot) => slot.1 += 1,
-            None => shelf.push((id.clone(), 1)),
+        match shelf.iter_mut().find(|s| s.id == sold.id && s.affixes == sold.affixes) {
+            Some(slot) => slot.count += 1,
+            None => shelf.push(sold),
         }
-        format!("You sell the {} for {p} RU.", item.name)
+        format!("You sell the {name} for {p} RU.")
     }
 }
 
-fn take_stock(stock: &mut VendorStock, vendor_id: &str, id: &str) {
+fn take_one(stock: &mut VendorStock, vendor_id: &str, index: usize) {
     let shelf = stock.0.get_mut(vendor_id).expect("vendor stock");
-    if let Some(i) = shelf.iter().position(|(x, _)| x == id) {
-        shelf[i].1 -= 1;
-        if shelf[i].1 == 0 {
-            shelf.remove(i);
-        }
+    if index >= shelf.len() {
+        return;
+    }
+    shelf[index].count -= 1;
+    if shelf[index].count == 0 {
+        shelf.remove(index);
     }
 }
 
@@ -546,7 +600,7 @@ mod tests {
         let stock = VendorStock(
             zone.vendors
                 .iter()
-                .map(|(id, v)| (id.clone(), v.stock.clone()))
+                .map(|(id, v)| (id.clone(), crate::area::shelf(v)))
                 .collect(),
         );
         (zone, stock, RunState::roll(0, &[8, 9, 4], &mut crate::run::Rng::new(3)))
@@ -557,22 +611,16 @@ mod tests {
         let (zone, mut stock, mut run) = fixture();
         let before = run.rubles;
         // "bolt" is the cheapest thing on the shelf; find its row in buy mode.
-        let sel = stock.0["trader"].iter().position(|(i, _)| i == "bolt").unwrap();
-        let held = run.items.iter().find(|(i, _)| i == "bolt").map_or(0, |(_, n)| *n);
+        let sel = stock.0["trader"].iter().position(|s| s.id == "bolt").unwrap();
+        let held = run.count_of("bolt");
 
         trade_one(&zone, &mut stock, &mut run, "trader", true, sel);
-        assert_eq!(
-            run.items.iter().find(|(i, _)| i == "bolt").unwrap().1,
-            held + 1
-        );
+        assert_eq!(run.count_of("bolt"), held + 1);
         assert!(run.rubles < before);
 
-        let sel = run.items.iter().position(|(i, _)| i == "bolt").unwrap();
+        let sel = run.items.iter().position(|s| s.id == "bolt").unwrap();
         trade_one(&zone, &mut stock, &mut run, "trader", false, sel);
-        assert_eq!(
-            run.items.iter().find(|(i, _)| i == "bolt").unwrap().1,
-            held
-        );
+        assert_eq!(run.count_of("bolt"), held);
         assert!(run.rubles < before, "the margin is the vendor's cut");
     }
 
@@ -580,11 +628,11 @@ mod tests {
     fn cannot_buy_without_the_rubles() {
         let (zone, mut stock, mut run) = fixture();
         run.rubles = 0;
-        let sel = stock.0["trader"].iter().position(|(i, _)| i == "bolt").unwrap();
-        let held = run.items.iter().find(|(i, _)| i == "bolt").map_or(0, |(_, n)| *n);
+        let sel = stock.0["trader"].iter().position(|s| s.id == "bolt").unwrap();
+        let held = run.count_of("bolt");
         let msg = trade_one(&zone, &mut stock, &mut run, "trader", true, sel);
         assert!(msg.contains("cannot afford"));
-        assert_eq!(run.items.iter().find(|(i, _)| i == "bolt").unwrap().1, held);
+        assert_eq!(run.count_of("bolt"), held);
         assert_eq!(run.rubles, 0);
     }
 
@@ -681,11 +729,11 @@ mod tests {
     fn heal_is_capped_and_consumes_the_item() {
         let (zone, _, mut run) = fixture();
         run.hp = run.max_hp - 2;
-        let i = run.items.iter().position(|(id, _)| id == "medkit").unwrap();
+        let i = run.items.iter().position(|s| s.id == "medkit").unwrap();
         let (msg, acted) = use_item(&zone, &mut run, i);
         assert!(acted);
         assert_eq!(run.hp, run.max_hp);
         assert!(msg.contains("HP +2"));
-        assert!(!run.items.iter().any(|(id, _)| id == "medkit"));
+        assert_eq!(run.count_of("medkit"), 0);
     }
 }

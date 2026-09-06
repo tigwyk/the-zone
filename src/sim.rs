@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use bevy::prelude::*;
 
 use crate::area::{Action, AnomalyData, AreaData, Gate, ItemKind, VendorStock, ZoneData};
+use crate::loot::{self, Effect};
 use crate::run::{check, check_skill, Outcome, Rng, RunState, Skill, PER};
 
 // ---- the clock (GDD §5) ----
@@ -91,18 +92,32 @@ fn carried_artifacts<'a>(
     run: &'a RunState,
     zone: &'a ZoneData,
 ) -> impl Iterator<Item = (usize, i32, i32)> + 'a {
-    run.items.iter().filter_map(move |(id, n)| {
-        match zone.items.get(id).map(|i| i.kind) {
+    run.items.iter().filter_map(move |stack| {
+        match zone.items.get(&stack.id).map(|i| i.kind) {
             Some(ItemKind::Artifact { attr, bonus, rads }) => {
-                Some((attr, bonus * *n as i32, rads * *n as i32))
+                Some((attr, bonus * stack.count as i32, rads * stack.count as i32))
             }
             _ => None,
         }
     })
 }
 
+/// What one hour costs you: the artifacts in the pack, less whatever the gear you
+/// are wearing holds off. Never negative - shielding does not un-irradiate you.
 pub(crate) fn artifact_rads_per_hour(run: &RunState, zone: &ZoneData) -> i32 {
-    carried_artifacts(run, zone).map(|(_, _, rads)| rads).sum()
+    let carried: i32 = carried_artifacts(run, zone).map(|(_, _, rads)| rads).sum();
+    (carried + worn_bonus(run, zone, Effect::Rads)).max(0)
+}
+
+/// One effect summed over what is actually equipped. Affixes work when worn, not
+/// when carried; that is what an equipment slot is for.
+pub(crate) fn worn_bonus(run: &RunState, zone: &ZoneData, effect: Effect) -> i32 {
+    [run.weapon, run.armor]
+        .into_iter()
+        .flatten()
+        .filter_map(|uid| run.stack(uid))
+        .map(|stack| loot::bonus(stack, zone, effect))
+        .sum()
 }
 
 /// Attribute after artifact bonuses and radiation penalty. Never drops below 1.
@@ -111,13 +126,14 @@ pub(crate) fn attr(run: &RunState, zone: &ZoneData, index: usize) -> i32 {
         .filter(|&(a, _, _)| a == index)
         .map(|(_, b, _)| b)
         .sum();
-    (run.attrs[index] + bonus - rad_penalty(run.rads)).max(1)
+    let worn = worn_bonus(run, zone, Effect::Attr(index));
+    (run.attrs[index] + bonus + worn - rad_penalty(run.rads)).max(1)
 }
 
 pub(crate) fn carrying_light(run: &RunState, zone: &ZoneData) -> bool {
     run.items
         .iter()
-        .any(|(id, _)| matches!(zone.items.get(id).map(|i| i.kind), Some(ItemKind::Light)))
+        .any(|s| matches!(zone.items.get(&s.id).map(|i| i.kind), Some(ItemKind::Light)))
 }
 
 // ---- passing time ----
@@ -174,7 +190,7 @@ fn emission(
 
     // An emission restocks the vendors and reshuffles the fields (GDD §5).
     for (id, vendor) in &zone.vendors {
-        stock.0.insert(id.clone(), vendor.stock.clone());
+        stock.0.insert(id.clone(), crate::area::shelf(vendor));
     }
     fields.0.clear();
     clock.schedule(run, rng);
@@ -397,7 +413,7 @@ mod tests {
         let stock = VendorStock(
             zone.vendors
                 .iter()
-                .map(|(id, v)| (id.clone(), v.stock.clone()))
+                .map(|(id, v)| (id.clone(), crate::area::shelf(v)))
                 .collect(),
         );
         let mut rng = Rng::new(7);
@@ -470,9 +486,9 @@ mod tests {
         let (zone, mut run, mut rng, mut fields, _, _) = fixture();
         let anomaly = zone.areas["field"].anomaly.clone().unwrap();
 
-        let bolts = run.items.iter().find(|(i, _)| i == "bolt").unwrap().1;
+        let bolts = run.count_of("bolt");
         throw_bolt("field", &anomaly, &mut run, &mut fields, &mut rng);
-        assert_eq!(run.items.iter().find(|(i, _)| i == "bolt").unwrap().1, bolts - 1);
+        assert_eq!(run.count_of("bolt"), bolts - 1);
         assert!(fields.get("field").bolt_safe.is_some());
 
         run.take_item("bolt", bolts - 1);
@@ -493,13 +509,13 @@ mod tests {
         let anomaly = zone.areas["field"].anomaly.clone().unwrap();
         fields.entry("field").artifact = true;
         take_artifact("field", &anomaly, &mut run, &zone, &mut fields);
-        assert_eq!(run.items.iter().find(|(i, _)| *i == anomaly.artifact).unwrap().1, 1);
+        assert_eq!(run.count_of(&anomaly.artifact), 1);
         assert!(fields.get("field").taken);
         assert!(!fields.get("field").artifact, "the menu entry goes away with it");
 
         // A second attempt finds an empty field, and the menu no longer offers it.
         assert!(take_artifact("field", &anomaly, &mut run, &zone, &mut fields).contains("nothing left"));
-        assert_eq!(run.items.iter().find(|(i, _)| *i == anomaly.artifact).unwrap().1, 1);
+        assert_eq!(run.count_of(&anomaly.artifact), 1);
         let menu = visible_menu(&zone.areas["field"], &fields, "field");
         assert!(!menu.iter().any(|(_, a)| matches!(a, Action::TakeArtifact)));
     }

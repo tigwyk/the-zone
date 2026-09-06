@@ -8,6 +8,7 @@ use bevy::prelude::*;
 use serde::Deserialize;
 
 use crate::dialogue::NpcData;
+use crate::loot::{AffixData, ItemStack};
 use crate::meta::EndingData;
 use crate::quest::QuestData;
 use crate::render::{Glyph, TileGrid, PALETTE};
@@ -61,6 +62,9 @@ pub(crate) struct EnemyData {
     /// GDD §8: bandits and Fleshes run at under 20% HP; bloodsuckers do not.
     #[serde(default)]
     pub flees: bool,
+    /// How deep it lives, which is what its loot rolls against.
+    #[serde(default)]
+    pub tier: u32,
     /// Invisible until it strikes: a PER check to act first, or it opens on you.
     #[serde(default)]
     pub ambush: bool,
@@ -81,6 +85,9 @@ struct Area {
     secrets: HashMap<char, Secret>,
     #[serde(default)]
     anomaly: Option<AnomalyData>,
+    /// How deep this is, which is what anything found here rolls against.
+    #[serde(default)]
+    tier: u32,
     /// The thing that lives here. Fought once per run, on arrival.
     /// `ponytail:` no roving encounters yet - a `chance` field is the upgrade path.
     #[serde(default)]
@@ -193,6 +200,7 @@ pub(crate) struct AreaData {
     pub secret_cells: Vec<(usize, usize, char)>,
     pub anomaly: Option<AnomalyData>,
     pub encounter: Option<String>,
+    pub tier: u32,
 }
 
 #[derive(Resource)]
@@ -207,6 +215,7 @@ pub(crate) struct ZoneData {
     pub factions: HashMap<String, FactionData>,
     pub endings: HashMap<String, EndingData>,
     pub lore: HashMap<String, LoreData>,
+    pub affixes: HashMap<String, AffixData>,
 }
 
 impl FromWorld for ZoneData {
@@ -219,17 +228,24 @@ impl FromWorld for ZoneData {
 /// `ZoneData` because stock changes as the player trades.
 /// `ponytail:` no restock roll yet — the stock table lands with the clock in M3.
 #[derive(Resource)]
-pub(crate) struct VendorStock(pub HashMap<String, Vec<(String, u32)>>);
+pub(crate) struct VendorStock(pub HashMap<String, Vec<ItemStack>>);
+
+/// A shelf as it was authored: plain goods, in the order the vendor lists them.
+/// `ponytail:` shops do not roll affixes - what the Zone has been at comes out of
+/// the Zone, and a restock that rolled would be the place to change that.
+pub(crate) fn shelf(vendor: &VendorData) -> Vec<ItemStack> {
+    vendor
+        .stock
+        .iter()
+        .enumerate()
+        .map(|(i, (id, n))| ItemStack::plain(i as u32, id, *n))
+        .collect()
+}
 
 impl FromWorld for VendorStock {
     fn from_world(world: &mut World) -> Self {
         let zone = world.resource::<ZoneData>();
-        VendorStock(
-            zone.vendors
-                .iter()
-                .map(|(id, v)| (id.clone(), v.stock.clone()))
-                .collect(),
-        )
+        VendorStock(zone.vendors.iter().map(|(id, v)| (id.clone(), shelf(v))).collect())
     }
 }
 
@@ -268,6 +284,7 @@ pub(crate) fn load_zone(data_dir: &Path) -> ZoneData {
                 secret_cells,
                 anomaly: a.anomaly,
                 encounter: a.encounter,
+                tier: a.tier,
             },
         );
     }
@@ -288,6 +305,7 @@ pub(crate) fn load_zone(data_dir: &Path) -> ZoneData {
         factions: read_ron(&data_dir.join("factions.ron")),
         endings: read_ron(&data_dir.join("endings.ron")),
         lore: read_ron(&data_dir.join("lore.ron")),
+        affixes: read_ron(&data_dir.join("affixes.ron")),
     };
     data.validate_ids();
     data

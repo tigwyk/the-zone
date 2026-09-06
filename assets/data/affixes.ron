@@ -1,0 +1,101 @@
+// What the Zone does to gear it has had a chance at. A prefix is one word in front
+// of the name; a suffix is the whole "of the ..." after it. Rarity is how many roll.
+//
+// effect: Damage | ToHit | Armor | Crit | Attr(n) | Rads
+//   Attr indices: 0 STR, 1 PER, 2 END, 3 CHA, 4 INT, 5 AGI, 6 LCK
+// fits:   Weapon | Armor | Any     slot: Prefix | Suffix
+{
+    // ---- prefixes: weapons ----
+    "keen": Affix(
+        name: "Keen", slot: Prefix, fits: Weapon,
+        effect: ToHit, range: (4, 12), value: 55,
+    ),
+    "heavy": Affix(
+        name: "Heavy", slot: Prefix, fits: Weapon,
+        effect: Damage, range: (1, 4), value: 140,
+    ),
+    "scorched": Affix(
+        name: "Scorched", slot: Prefix, fits: Weapon,
+        effect: Damage, range: (2, 6), value: 175,
+    ),
+    "trued": Affix(
+        name: "Trued", slot: Prefix, fits: Weapon,
+        effect: ToHit, range: (8, 18), value: 70,
+    ),
+    "hairline": Affix(
+        name: "Hairline", slot: Prefix, fits: Weapon,
+        effect: Crit, range: (1, 3), value: 400,
+    ),
+
+    // ---- prefixes: armour ----
+    "plated": Affix(
+        name: "Plated", slot: Prefix, fits: Armor,
+        effect: Armor, range: (1, 3), value: 210,
+    ),
+    "lined": Affix(
+        name: "Lined", slot: Prefix, fits: Armor,
+        effect: Armor, range: (2, 5), value: 260,
+    ),
+    "leaded": Affix(
+        name: "Leaded", slot: Prefix, fits: Armor,
+        effect: Rads, range: (-4, -1), value: 320,
+    ),
+    "sealed": Affix(
+        name: "Sealed", slot: Prefix, fits: Armor,
+        effect: Rads, range: (-8, -3), value: 380,
+    ),
+
+    // ---- prefixes: either ----
+    "bitter": Affix(
+        name: "Bitter", slot: Prefix, fits: Any,
+        effect: Attr(2), range: (1, 2), value: 300,
+    ),
+    "clean": Affix(
+        name: "Clean", slot: Prefix, fits: Any,
+        effect: Attr(1), range: (1, 2), value: 300,
+    ),
+
+    // ---- suffixes: named for what did it ----
+    "of_the_whirligig": Affix(
+        name: "of the Whirligig", slot: Suffix, fits: Any,
+        effect: Attr(0), range: (1, 2), value: 320,
+    ),
+    "of_the_burner": Affix(
+        name: "of the Burner", slot: Suffix, fits: Weapon,
+        effect: Damage, range: (2, 5), value: 165,
+    ),
+    "of_the_arc": Affix(
+        name: "of the Arc", slot: Suffix, fits: Any,
+        effect: Attr(5), range: (1, 2), value: 320,
+    ),
+    "of_the_punch": Affix(
+        name: "of the Punch", slot: Suffix, fits: Armor,
+        effect: Armor, range: (1, 4), value: 230,
+    ),
+    "of_the_rift": Affix(
+        name: "of the Rift", slot: Suffix, fits: Any,
+        effect: Attr(6), range: (1, 2), value: 420,
+    ),
+    "of_the_long_walk": Affix(
+        name: "of the Long Walk", slot: Suffix, fits: Any,
+        effect: Rads, range: (-5, -2), value: 300,
+    ),
+    "of_the_steady_hand": Affix(
+        name: "of the Steady Hand", slot: Suffix, fits: Weapon,
+        effect: ToHit, range: (6, 15), value: 60,
+    ),
+    "of_the_quiet": Affix(
+        name: "of the Quiet", slot: Suffix, fits: Any,
+        effect: Attr(4), range: (1, 2), value: 280,
+    ),
+    "of_the_deep": Affix(
+        name: "of the Deep", slot: Suffix, fits: Weapon,
+        effect: Crit, range: (1, 2), value: 450,
+    ),
+
+    // The Zone does not only give. A cheap thing with this on it is cheap for a reason.
+    "hot": Affix(
+        name: "Hot", slot: Prefix, fits: Any,
+        effect: Rads, range: (2, 6), value: 40,
+    ),
+}

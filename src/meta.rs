@@ -166,7 +166,7 @@ pub(crate) struct Suspend {
     pub area: String,
     pub clock: GameClock,
     pub fields: HashMap<String, FieldState>,
-    pub stock: HashMap<String, Vec<(String, u32)>>,
+    pub stock: HashMap<String, Vec<crate::loot::ItemStack>>,
     pub rng: Rng,
 }
 
@@ -341,7 +341,10 @@ mod tests {
         run.minutes = 900;
         let mut fields = Fields::default();
         fields.0.insert("field".into(), FieldState { scanned: true, ..Default::default() });
-        let stock = VendorStock(HashMap::from([("trader".into(), vec![("bolt".into(), 3)])]));
+        let stock = VendorStock(HashMap::from([(
+            "trader".to_string(),
+            vec![crate::loot::ItemStack::plain(0, "bolt", 3)],
+        )]));
 
         assert!(suspend(&dir, &run, "quarry", &GameClock { next_emission: 7000 }, &fields, &stock, &rng));
         let back = resume(&dir).expect("the file was just written");
@@ -349,7 +352,7 @@ mod tests {
         assert_eq!(back.area, "quarry");
         assert_eq!(back.clock.next_emission, 7000);
         assert!(back.fields["field"].scanned);
-        assert_eq!(back.stock["trader"][0].1, 3);
+        assert_eq!(back.stock["trader"][0].count, 3);
 
         // Reading it spends it. There is no reload (GDD §10).
         assert!(resume(&dir).is_none());

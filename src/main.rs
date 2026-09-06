@@ -4,6 +4,7 @@ mod area;
 mod audio;
 mod combat;
 mod dialogue;
+mod loot;
 mod meta;
 mod quest;
 mod render;
@@ -509,8 +510,21 @@ fn perform(action: &Action, act: &mut Act, next_state: &mut NextState<GameState>
         Action::Give(item, count) => {
             let key = format!("took:{here}:{item}");
             act.message.0 = if act.run.flags.insert(key) {
-                act.run.add_item(item, *count);
-                format!("You come away with the {}.", act.zone.items[item].name)
+                // A cache rolls like anything else the Zone has been at, against
+                // how deep the place is and how lucky you are.
+                let tier = act.zone.areas[here.as_str()].tier;
+                let luck = sim::attr(&act.run, &act.zone, run::LCK);
+                let uid = act.run.next_uid();
+                let stack =
+                    loot::roll_item(uid, item, *count, tier, luck, &act.zone, &mut act.rng);
+                let name = loot::display_name(&stack, &act.zone);
+                let rarity = stack.rarity();
+                act.run.add_stack(stack);
+                if rarity == loot::Rarity::Plain {
+                    format!("You come away with the {name}.")
+                } else {
+                    format!("You come away with the {name}. The Zone has been at it.")
+                }
             } else {
                 "You have already had that out of here.".into()
             };
@@ -1241,9 +1255,9 @@ mod playthrough {
         fn arm_with(&mut self, item: &str) -> &mut Self {
             let mut run = self.run_mut();
             run.add_item(item, 1);
-            run.weapon = Some(item.into());
+            run.weapon = run.items.iter().find(|s| s.id == item).map(|s| s.uid);
             run.add_item("vest", 1);
-            run.armor = Some("vest".into());
+            run.armor = run.items.iter().find(|s| s.id == "vest").map(|s| s.uid);
             run.skills[Skill::SmallGuns.index()] = 90;
             run.skills[Skill::Melee.index()] = 90;
             self
@@ -1382,7 +1396,7 @@ mod playthrough {
         sim.fight();
         assert_eq!(sim.state(), GameState::Area);
         assert!(
-            sim.run().items.iter().any(|(i, _)| i == "flesh_eye"),
+            sim.run().count_of("flesh_eye") > 0,
             "a dead Flesh pays for the trip:\n{}",
             sim.screen()
         );
@@ -1392,7 +1406,7 @@ mod playthrough {
         assert!(sim.run().is_revealed("quarry", 'S'));
         sim.press(KeyCode::KeyS);
         sim.assert_shows("Army Medkit");
-        assert!(sim.run().items.iter().any(|(i, _)| i == "army_medkit"));
+        assert!(sim.run().count_of("army_medkit") > 0);
         // A crate is emptied once, not once a visit.
         sim.press(KeyCode::KeyS);
         sim.assert_shows("already had that");
@@ -1479,6 +1493,89 @@ mod playthrough {
         }
         assert_eq!(sim.state(), GameState::GameOver);
         sim.assert_shows("THE ZONE IS STILL THERE");
+    }
+
+    #[test]
+    fn a_marked_weapon_reads_out_and_actually_hits_harder() {
+        use loot::{Effect, ItemStack, Rarity, Roll};
+
+        let mut sim = Sim::with_saves("affix");
+        sim.roll_a_stalker();
+
+        // A shotgun the Zone has been at twice: one prefix, one suffix.
+        {
+            let mut run = sim.run_mut();
+            let uid = run.next_uid();
+            run.add_stack(ItemStack {
+                uid,
+                id: "shotgun".into(),
+                count: 1,
+                affixes: vec![
+                    Roll { affix: "heavy".into(), magnitude: 3 },
+                    Roll { affix: "of_the_steady_hand".into(), magnitude: 10 },
+                ],
+            });
+            run.weapon = Some(uid);
+        }
+
+        // The pack shows the built name, the rarity, and what each roll does.
+        sim.press(KeyCode::Tab);
+        assert_eq!(sim.state(), GameState::Inventory);
+        sim.choose_listed("Heavy Pump Shotgun of the Steady Hand");
+        sim.assert_shows("marked");
+        sim.assert_shows("+3 damage");
+        sim.assert_shows("+10 to hit");
+        sim.press(KeyCode::Escape);
+
+        let stack = sim.run().items.iter().find(|s| s.id == "shotgun").unwrap().clone();
+        assert_eq!(stack.rarity(), Rarity::Marked);
+        let zone = sim.app.world().resource::<ZoneData>();
+        assert_eq!(loot::bonus(&stack, zone, Effect::Damage), 3);
+        assert_eq!(loot::bonus(&stack, zone, Effect::ToHit), 10);
+        // And it is worth more than the plain gun, because of what is on it.
+        assert!(loot::value(&stack, zone) > zone.items["shotgun"].base);
+    }
+
+    #[test]
+    fn what_is_worn_moves_the_numbers_it_says_it_does() {
+        use loot::{ItemStack, Roll};
+
+        let mut sim = Sim::with_saves("worn");
+        sim.roll_a_stalker();
+
+        let before_per = {
+            let (run, zone) = (sim.run(), sim.app.world().resource::<ZoneData>());
+            sim::attr(run, zone, run::PER)
+        };
+
+        // A sealed, clean suit: rad shielding on one roll, PER on the other.
+        {
+            let mut run = sim.run_mut();
+            let uid = run.next_uid();
+            run.add_stack(ItemStack {
+                uid,
+                id: "vest".into(),
+                count: 1,
+                affixes: vec![
+                    Roll { affix: "sealed".into(), magnitude: -6 },
+                    Roll { affix: "clean".into(), magnitude: 2 },
+                ],
+            });
+            run.armor = Some(uid);
+            // An artifact that would otherwise cost four rads an hour.
+            run.add_item("gravi", 1);
+        }
+
+        let (run, zone) = (sim.run(), sim.app.world().resource::<ZoneData>());
+        assert_eq!(sim::attr(run, zone, run::PER), before_per + 2, "worn PER counts");
+        assert_eq!(
+            sim::artifact_rads_per_hour(run, zone),
+            0,
+            "six points of shielding covers a four-rad artifact, and does not go below nought"
+        );
+        // Neither of those rolls is an armour roll, so damage resistance is still
+        // exactly the vest: an effect only moves the number it names.
+        assert_eq!(combat::armor_of(run, zone), 5);
     }
 
     #[test]
@@ -1660,7 +1757,7 @@ mod playthrough {
         sim.press(KeyCode::F5);
 
         // Starting again drops you straight back where you stood.
-        let mut back = Sim::reopen(saves.clone());
+        let back = Sim::reopen(saves.clone());
         assert_eq!(back.state(), GameState::Area);
         back.assert_shows("A dirt road between the camp and the wastes");
         assert_eq!(back.run().rubles, 1234);

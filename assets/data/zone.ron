@@ -36,6 +36,7 @@ Zone(
             },
         ),
         "hatch": Area(
+            tier: 0,
             name: "The Hatch",
             art: "hatch",
             shelter: true,
@@ -79,6 +80,7 @@ Zone(
             },
         ),
         "pipes": Area(
+            tier: 4,
             name: "The Storm Drain",
             art: "pipes",
             shelter: true,
@@ -106,6 +108,7 @@ Zone(
             },
         ),
         "cellar": Area(
+            tier: 1,
             name: "The Farm Cellar",
             art: "cellar",
             shelter: true,
@@ -162,6 +165,7 @@ Zone(
             },
         ),
         "bandit_den": Area(
+            tier: 2,
             name: "The Container",
             art: "bandit_den",
             shelter: true,
@@ -325,6 +329,7 @@ Zone(
 
         // ---- the quarry ----
         "quarry": Area(
+            tier: 1,
             name: "The Quarry Rim",
             art: "quarry",
             shelter: false,
@@ -370,6 +375,7 @@ Zone(
             },
         ),
         "lab_vault": Area(
+            tier: 4,
             name: "The Records Vault",
             art: "lab_vault",
             shelter: true,
@@ -398,6 +404,7 @@ Zone(
             },
         ),
         "church": Area(
+            tier: 3,
             name: "The Church",
             art: "church",
             shelter: true,
@@ -426,6 +433,7 @@ Zone(
             },
         ),
         "bunker": Area(
+            tier: 5,
             name: "The Shelter",
             art: "bunker",
             shelter: true,

@@ -216,6 +216,33 @@ an hour, like any travel. On a scan, PER assists Stalker Lore at **+2 per point 
 **In v1 so far:** the Whirligig field east of the road (danger 55, 6d6) hides a **Gravi**
 (+1 STR, 4 rads an hour, base 3000 ₽). A **flashlight** (200 ₽) is the light source.
 
+### Loot the Zone has been at
+
+Gear that comes off a corpse or out of a cache is rolled, the way an anomaly rolls
+anything it has had time with. How many affixes it carries **is** its rarity:
+
+| Rarity | Rolls | Reads as |
+|---|---|---|
+| plain | 0 | Pump Shotgun |
+| touched | 1 | Pump Shotgun of the Arc |
+| marked | 2 | Plated Stalker Vest of the Punch |
+| warped | 4 | Heavy PMm Pistol of the Rift |
+| relic | 6 | Plated Sealed Suit of the Long Walk |
+
+A prefix is one word in front of the name and a suffix is the phrase after it, so a
+thing's name says what the Zone did to it. Affixes move damage, to-hit, damage
+resistance, the crit window, one attribute, or rads an hour — and one of them, **Hot**,
+is a curse: it pays badly and it counts against you the whole time you wear it.
+
+Only weapons and armour roll; a medkit is a medkit. Affixes work when the thing is
+equipped, which is the opposite of an artifact, and that is the trade: an artifact
+works from the pack and charges you for it.
+
+**Rarity is rare.** At the Zone's edge about six things in ten come up plain and a relic
+is well under one in a hundred. Depth and luck widen the good end, but the top band
+widens slowest — a relic is meant to be a story you tell in the bar, not something the
+deep fields hand out every trip.
+
 **Artifacts** give a stat bonus and a radiation cost while carried. They are the money
 engine: sell at the trader, or keep and pay in rads. Deeper fields spawn better ones.
 Roughly 12 artifacts in v1, 3 tiers.
@@ -358,6 +385,10 @@ what they asked for three times in four.
 - Colors mean things: green is ground and living, amber is anomaly, cyan is artifact,
   **bold cyan is a secret**, red is damage and warning, grey is dead. Green is the
   screen's base state and everything else is an interruption, so the accents stay rare.
+- Loot borrows the same ladder rather than inventing a palette: a plain thing is
+  ordinary green, and the further the Zone has got into it the further it runs — cyan,
+  then amber, then fire, and a relic in pale, bold. Bold cyan is still only ever a
+  secret.
 - **Sound** is three cues and no music: a dry tick for moving the cursor, two steps up
   for confirming, and a low thud when something takes a piece out of you. The thud is
   the only one meant to land.

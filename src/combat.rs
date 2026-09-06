@@ -4,8 +4,9 @@
 use bevy::prelude::*;
 
 use crate::area::{draw_art, EnemyData, ItemKind, ZoneData};
+use crate::loot::{self, Effect};
 use crate::render::{TileGrid, PALETTE};
-use crate::run::{check, check_skill, Outcome, Rng, RunState, Skill, AGI, INT, PER};
+use crate::run::{check, check_skill, Outcome, Rng, RunState, Skill, AGI, INT, LCK, PER};
 use crate::screens::{draw_chrome, draw_message};
 use crate::sim::{attr, carrying_light, is_night, Fields, GameClock, NIGHT_PENALTY};
 
@@ -129,11 +130,30 @@ pub(crate) enum Verb {
     Flee,
 }
 
-/// The weapon in hand: its dice and the skill that swings it. Bare hands otherwise.
-fn weapon(run: &RunState, zone: &ZoneData) -> ((u32, u32), Skill) {
-    match run.weapon.as_ref().map(|id| zone.items[id].kind) {
+/// What is in hand: dice, the skill that swings it, and whatever the Zone added to
+/// it. Bare hands otherwise.
+struct InHand {
+    dice: (u32, u32),
+    skill: Skill,
+    damage: i32,
+    to_hit: i32,
+    crit: u32,
+}
+
+fn weapon(run: &RunState, zone: &ZoneData) -> InHand {
+    let held = run.weapon.and_then(|uid| run.stack(uid));
+    let kind = held.map(|s| zone.items[&s.id].kind);
+    let (dice, skill) = match kind {
         Some(ItemKind::Weapon { dice, skill }) => (dice, skill),
         _ => (UNARMED, Skill::Melee),
+    };
+    let of = |effect| held.map_or(0, |s| loot::bonus(s, zone, effect));
+    InHand {
+        dice,
+        skill,
+        damage: of(Effect::Damage),
+        to_hit: of(Effect::ToHit),
+        crit: of(Effect::Crit).max(0) as u32,
     }
 }
 
@@ -145,8 +165,7 @@ fn can_reach(skill: Skill, band: Band) -> bool {
 /// The menu for this moment. Never more than five, so it fits rows 22-26; using an
 /// item is the footer's Inventory, not a sixth verb.
 pub(crate) fn menu(combat: &Combat, run: &RunState, zone: &ZoneData) -> Vec<(String, Verb)> {
-    let (_, skill) = weapon(run, zone);
-    let reaches = can_reach(skill, combat.band);
+    let reaches = can_reach(weapon(run, zone).skill, combat.band);
     let mut menu = Vec::new();
     if reaches && combat.ap >= AP_ATTACK {
         menu.push((format!("Attack ({AP_ATTACK} AP)"), Verb::Attack));
@@ -172,8 +191,9 @@ fn roll_dice(dice: (u32, u32), rng: &mut Rng) -> i32 {
 }
 
 /// GDD §8: damage = dice - armour, and a crit doubles it and ignores armour.
-fn damage(dice: (u32, u32), armor: i32, crit: bool, rng: &mut Rng) -> i32 {
-    let rolled = roll_dice(dice, rng);
+/// `flat` is what the affixes add, and it doubles with the rest on a crit.
+fn damage(dice: (u32, u32), flat: i32, armor: i32, crit: bool, rng: &mut Rng) -> i32 {
+    let rolled = roll_dice(dice, rng) + flat;
     if crit {
         (rolled * 2).max(1)
     } else {
@@ -181,11 +201,16 @@ fn damage(dice: (u32, u32), armor: i32, crit: bool, rng: &mut Rng) -> i32 {
     }
 }
 
-fn armor_of(run: &RunState, zone: &ZoneData) -> i32 {
-    match run.armor.as_ref().map(|id| zone.items[id].kind) {
-        Some(ItemKind::Armor(dr)) => dr,
+/// Damage resistance: what the suit is, plus what the Zone put on it.
+pub(crate) fn armor_of(run: &RunState, zone: &ZoneData) -> i32 {
+    let Some(worn) = run.armor.and_then(|uid| run.stack(uid)) else {
+        return 0;
+    };
+    let base = match zone.items[&worn.id].kind {
+        ItemKind::Armor(dr) => dr,
         _ => 0,
-    }
+    };
+    base + loot::bonus(worn, zone, Effect::Armor)
 }
 
 fn night_penalty(run: &RunState, zone: &ZoneData) -> i32 {
@@ -246,7 +271,7 @@ pub(crate) fn act(
 
     if combat.hp <= 0 {
         combat.active = false;
-        return format!("{message} {}", kill(&enemy, run));
+        return format!("{message} {}", kill(&enemy, &combat.enemy, run, zone, rng));
     }
     if let Some(theirs) = end_turn(combat, run, zone, rng) {
         message = format!("{message} {theirs}");
@@ -262,21 +287,22 @@ fn attack(
     enemy: &EnemyData,
     rng: &mut Rng,
 ) -> String {
-    let (dice, skill) = weapon(run, zone);
+    let hand = weapon(run, zone);
     combat.ap -= if aimed { AP_AIMED } else { AP_ATTACK };
 
     let modifier = combat.band.to_hit()
         + night_penalty(run, zone)
+        + hand.to_hit
         + if aimed { AIMED_BONUS } else { 0 };
-    let crit_on = if aimed { AIMED_CRIT_ON } else { 1 };
-    let out = check_skill(run, skill.index(), modifier, crit_on, rng);
+    let crit_on = if aimed { AIMED_CRIT_ON } else { 1 } + hand.crit;
+    let out = check_skill(run, hand.skill.index(), modifier, crit_on, rng);
 
     match out {
         Outcome::Fail => format!("You miss the {}.", enemy.name),
         Outcome::CritFail => "The shot goes wide and you lose your footing.".into(),
         Outcome::Success | Outcome::CritSuccess => {
             let crit = out == Outcome::CritSuccess;
-            let hit = damage(dice, enemy.armor, crit, rng);
+            let hit = damage(hand.dice, hand.damage, enemy.armor, crit, rng);
             combat.hp -= hit;
             if crit {
                 format!("You hit the {} clean. {hit} damage.", enemy.name)
@@ -287,16 +313,27 @@ fn attack(
     }
 }
 
-fn kill(enemy: &EnemyData, run: &mut RunState) -> String {
-    let mut taken = Vec::new();
+fn kill(
+    enemy: &EnemyData,
+    enemy_id: &str,
+    run: &mut RunState,
+    zone: &ZoneData,
+    rng: &mut Rng,
+) -> String {
+    run.kills.insert(enemy_id.to_string());
+    let luck = attr(run, zone, LCK);
+    let mut best: Option<String> = None;
     for (id, n) in &enemy.loot {
-        run.add_item(id, *n);
-        taken.push(id.clone());
+        let uid = run.next_uid();
+        let stack = loot::roll_item(uid, id, *n, enemy.tier, luck, zone, rng);
+        if !stack.is_plain() {
+            best = Some(loot::display_name(&stack, zone));
+        }
+        run.add_stack(stack);
     }
-    if taken.is_empty() {
-        format!("The {} goes down.", enemy.name)
-    } else {
-        format!("The {} goes down. You cut something loose.", enemy.name)
+    match best {
+        Some(name) => format!("The {} goes down, and leaves a {name}.", enemy.name),
+        None => format!("The {} goes down.", enemy.name),
     }
 }
 
@@ -360,7 +397,7 @@ fn enemy_turn(
             }
             out => {
                 let crit = out == Outcome::CritSuccess;
-                let hit = damage(enemy.dice, armor_of(run, zone), crit, rng);
+                let hit = damage(enemy.dice, 0, armor_of(run, zone), crit, rng);
                 run.hp -= hit;
                 said.push(format!("The {} hits you for {hit}.", enemy.name));
             }
@@ -399,16 +436,18 @@ pub(crate) fn build_combat_grid(
     );
     grid.text(0, ENEMY_ROW, &line, PALETTE.red, true);
 
-    let (dice, skill) = weapon(run, zone);
+    let hand = weapon(run, zone);
+    let plus = if hand.damage > 0 { format!("+{}", hand.damage) } else { String::new() };
     let mine = format!(
-        "{:<16} HP {:>3}/{:<3}  AP {}   {}d{} {}",
+        "{:<16} HP {:>3}/{:<3}  AP {}   {}d{}{plus} {}  DR {}",
         "You",
         run.hp.max(0),
         run.max_hp,
         combat.ap,
-        dice.0,
-        dice.1,
-        crate::run::SKILL_NAMES[skill.index()]
+        hand.dice.0,
+        hand.dice.1,
+        crate::run::SKILL_NAMES[hand.skill.index()],
+        armor_of(run, zone),
     );
     grid.text(0, YOU_ROW, &mine, PALETTE.status, false);
 
@@ -429,6 +468,12 @@ mod tests {
     use super::*;
     use crate::area::load_zone;
     use std::path::Path;
+
+    /// Puts one of `id` in the pack and in the hand.
+    fn equip(run: &mut RunState, id: &str) {
+        run.add_item(id, 1);
+        run.weapon = Some(run.items.iter().find(|s| s.id == id).unwrap().uid);
+    }
 
     fn fixture() -> (ZoneData, RunState, Rng, Combat) {
         let zone = load_zone(Path::new("assets/data"));
@@ -456,16 +501,19 @@ mod tests {
     fn a_crit_doubles_the_dice_and_ignores_armour() {
         let mut rng = Rng::new(1);
         // 4d1 is always 4: plain hit is 4 - 3 armour = 1, a crit is 8 through it.
-        assert_eq!(damage((4, 1), 3, false, &mut rng), 1);
-        assert_eq!(damage((4, 1), 3, true, &mut rng), 8);
+        assert_eq!(damage((4, 1), 0, 3, false, &mut rng), 1);
+        assert_eq!(damage((4, 1), 0, 3, true, &mut rng), 8);
         // Armour never reduces a hit below 1.
-        assert_eq!(damage((1, 1), 99, false, &mut rng), 1);
+        assert_eq!(damage((1, 1), 0, 99, false, &mut rng), 1);
+        // An affix adds before armour, and doubles with everything on a crit.
+        assert_eq!(damage((4, 1), 3, 3, false, &mut rng), 4);
+        assert_eq!(damage((4, 1), 3, 3, true, &mut rng), 14);
     }
 
     #[test]
     fn a_melee_weapon_only_reaches_at_the_melee_band() {
         let (zone, mut run, _, mut combat) = fixture();
-        run.weapon = Some("knife".into());
+        equip(&mut run, "knife");
 
         combat.band = Band::Far;
         let far: Vec<Verb> = menu(&combat, &run, &zone).iter().map(|(_, v)| *v).collect();
@@ -478,7 +526,7 @@ mod tests {
         assert!(!close.contains(&Verb::CloseIn), "already there");
 
         // A pistol reaches from anywhere, and the menu never outgrows its five rows.
-        run.weapon = Some("pistol".into());
+        equip(&mut run, "pistol");
         for band in [Band::Far, Band::Near, Band::Melee] {
             combat.band = band;
             let m = menu(&combat, &run, &zone);
@@ -529,12 +577,11 @@ mod tests {
 
         // Killing it hands over the loot, once.
         let (_, mut run, _, _) = fixture();
-        assert!(!run.items.iter().any(|(i, _)| *i == flesh.loot[0].0));
-        kill(&flesh, &mut run);
-        assert_eq!(
-            run.items.iter().find(|(i, _)| *i == flesh.loot[0].0).unwrap().1,
-            flesh.loot[0].1
-        );
+        assert_eq!(run.count_of(&flesh.loot[0].0), 0);
+        let mut rng2 = Rng::new(5);
+        kill(&flesh, "flesh", &mut run, &zone, &mut rng2);
+        assert!(run.count_of(&flesh.loot[0].0) > 0);
+        assert!(run.kills.contains("flesh"), "a kill is remembered for the jobs");
     }
 
     #[test]
@@ -563,7 +610,7 @@ mod tests {
         start("controller", &mut combat, &mut run2, &zone, &mut rng);
         run = run2;
         run.attrs[INT] = 1;
-        run.weapon = Some("pistol".into());
+        equip(&mut run, "pistol");
         run.skills[Skill::SmallGuns.index()] = 100;
 
         let mut lost = 0;
@@ -583,7 +630,7 @@ mod tests {
     #[test]
     fn a_fight_ends_one_way_or_the_other() {
         let (zone, mut run, mut rng, mut combat) = fixture();
-        run.weapon = Some("pistol".into());
+        equip(&mut run, "pistol");
         run.skills[Skill::SmallGuns.index()] = 90;
 
         // Drive it like a player would: close, then shoot until something gives.

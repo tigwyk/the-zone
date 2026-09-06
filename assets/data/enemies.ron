@@ -2,31 +2,31 @@
 // pseudogiant. Bandits and fleshes run when hurt; the deep things do not.
 {
     "bandit": Enemy(
-        name: "Bandit", hp: 26, ap: 8, skill: 40, dice: (2, 6), armor: 2,
+        name: "Bandit", hp: 26, tier: 1, ap: 8, skill: 40, dice: (2, 6), armor: 2,
         flees: true, loot: [("sawn_off", 1), ("bandage", 1)],
     ),
     "blind_dog": Enemy(
-        name: "Blind Dog", hp: 14, ap: 10, skill: 35, dice: (1, 6), armor: 0,
+        name: "Blind Dog", hp: 14, tier: 0, ap: 10, skill: 35, dice: (1, 6), armor: 0,
         melee_only: true, flees: true, loot: [("dog_tail", 1)],
     ),
     "flesh": Enemy(
-        name: "Flesh", hp: 30, ap: 7, skill: 45, dice: (2, 6), armor: 1,
+        name: "Flesh", hp: 30, tier: 1, ap: 7, skill: 45, dice: (2, 6), armor: 1,
         melee_only: true, flees: true, loot: [("flesh_eye", 1)],
     ),
     "boar": Enemy(
-        name: "Zone Boar", hp: 42, ap: 8, skill: 50, dice: (2, 8), armor: 2,
+        name: "Zone Boar", hp: 42, tier: 2, ap: 8, skill: 50, dice: (2, 8), armor: 2,
         melee_only: true, loot: [("boar_tusk", 1)],
     ),
     "bloodsucker": Enemy(
-        name: "Bloodsucker", hp: 55, ap: 9, skill: 60, dice: (3, 6), armor: 3,
+        name: "Bloodsucker", hp: 55, tier: 4, ap: 9, skill: 60, dice: (3, 6), armor: 3,
         melee_only: true, ambush: true, loot: [("tentacle", 1), ("army_medkit", 1)],
     ),
     "controller": Enemy(
-        name: "Controller", hp: 48, ap: 7, skill: 65, dice: (2, 8), armor: 2,
+        name: "Controller", hp: 48, tier: 5, ap: 7, skill: 65, dice: (2, 8), armor: 2,
         mind: true, loot: [("controller_brain", 1)],
     ),
     "pseudogiant": Enemy(
-        name: "Pseudogiant", hp: 120, ap: 8, skill: 55, dice: (4, 8), armor: 6,
+        name: "Pseudogiant", hp: 120, tier: 7, ap: 8, skill: 55, dice: (4, 8), armor: 6,
         melee_only: true, loot: [("giant_heart", 1), ("exo_frame", 1)],
     ),
 }

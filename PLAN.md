@@ -58,6 +58,17 @@ Lab and the antenna, with two routes to the Room. Three more tests keep it hones
 area is walkable from the start, and no lore, job board or enemy has been written with
 nowhere to appear.
 
+**Loot the Zone has been at.** Gear that comes off a corpse or out of a cache is
+rolled: how many affixes it carries is its rarity, from plain through touched, marked
+and warped to relic. A prefix goes in front of the name and a suffix after it, so a
+Plated Sealed Suit of the Long Walk says what happened to it. Affixes move damage,
+to-hit, damage resistance, the crit window, an attribute or rads an hour, and each
+effect has exactly one hook in the code. They work when equipped, which is the trade
+against artifacts, which work from the pack and charge rads. An item in a pack is an
+instance now, not an id, and an equipment slot points at one particular pistol. Rarity
+is rolled out of a thousand and pushed by how deep the thing was and how lucky you are,
+capped so relics stay rare - about six in ten drops are plain at the edge.
+
 **The polish (M7).** Three synthesised cues - a tick for moving, two steps up for
 confirming, a thud when something hurts you - played by a system that reads the keyboard
 and the stalker's health directly, so nothing had to be plumbed through the game. A CRT
@@ -70,7 +81,7 @@ events is truncated visibly instead of silently falling off the grid.
 **The game tests itself.** `add_game` registers every resource, state and input system;
 `main` adds only the window, the renderer, the scanlines and the audio. So `cargo test`
 builds the same app headless on `MinimalPlugins`, presses keys into it and reads the
-`TileGrid` back as text. Sixty-seven tests green, eighteen of them whole play-throughs.
+`TileGrid` back as text. Seventy-four tests green, twenty of them whole play-throughs.
 Tests run on a temp `SaveDir` and never touch the player's own.
 
 Deliberate simplifications, documented in code:

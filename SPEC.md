@@ -29,6 +29,7 @@ src/combat.rs      bands, AP turns, the enemy machine, the combat screen (M4)
 src/dialogue.rs    NPCs, menu-option dialogue, the dialogue screen        (M5)
 src/quest.rs       jobs, standing, the job board and journal screens      (M5)
 src/meta.rs        memorial, unlocks, suspend, endings, the save files    (M6)
+src/loot.rs        rarity, affixes, item instances, rolling              (M8)
 src/audio.rs       the three cues                                        (M7)
 tools/make_sounds.py  synthesises assets/audio; the .wav files are the input
 assets/data/       all game content — see §5
@@ -238,6 +239,7 @@ world. Beside it:
 | `factions.ron` | `{ id: Faction(name, rivals) }` |
 | `endings.ron` | `{ id: Ending(name, literal, corrupted) }` |
 | `lore.ron` | `{ id: Lore(title, text) }` |
+| `affixes.ron` | `{ id: Affix(name, slot, fits, effect, range, value) }` |
 
 Anomalies stay inline in the area that has one; backgrounds stay as consts in
 `run.rs`; dialogue nests inside its NPC. Split those out when they outgrow a screen,
@@ -257,6 +259,30 @@ is settled; that is all a quest chain is.
 
 An enemy may set `ambush` (unseen until it strikes: a PER check, or it opens on you at
 melee) or `mind` (a will check each turn, or the action is lost).
+
+### 5.4 Loot
+
+An item in a pack is an `ItemStack`, not an id: `{ uid, id, count, affixes }`. Plain
+stacks merge; anything with a roll on it is its own object, because no two of them are
+the same any more. Equipment slots hold a **uid**, so they can point at one particular
+pistol.
+
+- **Rarity is derived from the number of rolls** (`Rarity::of`), never stored, so the
+  two can never disagree: 0 plain, 1 touched, 2 marked, 3-4 warped, 5-6 relic.
+- **Only weapons and armour roll.** A medkit is a medkit.
+- An affix has a `slot` (`Prefix` one word, `Suffix` the whole "of the ..." phrase), a
+  `fits` (`Weapon`, `Armor`, `Any`), one `effect`, an inclusive `range` it rolls its
+  magnitude in, and a `value` in rubles per point.
+- `effect` is `Damage`, `ToHit`, `Armor`, `Crit`, `Attr(n)` or `Rads`. **Every one has
+  exactly one place in the code that reads it** — that is what keeps the list honest.
+  Do not add an effect without a hook, and do not read one in two places.
+- **Affixes apply when equipped, not when carried** (`sim::worn_bonus`). Artifacts are
+  the opposite: they work from the pack and charge rads for it.
+- Rarity is rolled out of a thousand and pushed by depth and luck, capped so the top
+  band stays rare. An area carries a `tier`, an enemy carries a `tier`, and both feed
+  the same roll.
+- `cargo test -- --ignored --nocapture` prints a sample of what actually drops. Balance
+  is the one thing the assertions cannot judge; that is what the printer is for.
 
 **Content integrity is tested, not hoped for.** `area.rs` asserts the GDD §12 counts,
 that every area can be walked to from the start, and that no lore, job board or enemy

@@ -7,6 +7,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::loot::ItemStack;
+
 // ---- attributes & skills (GDD §4) ----
 
 pub(crate) const STR: usize = 0;
@@ -134,9 +136,12 @@ pub(crate) struct RunState {
     pub max_hp: i32,
     pub rads: i32,
     pub rubles: u32,
-    pub items: Vec<(String, u32)>,
-    pub weapon: Option<String>,
-    pub armor: Option<String>,
+    pub items: Vec<ItemStack>,
+    /// The uid of the stack in hand and the one being worn. A uid rather than an
+    /// item id, because two pistols are no longer the same pistol.
+    pub weapon: Option<u32>,
+    pub armor: Option<u32>,
+    next_uid: u32,
     pub rep: HashMap<String, i32>,
     /// Minutes since day 1, 00:00.
     pub minutes: u32,
@@ -189,9 +194,14 @@ impl RunState {
             max_hp,
             rads: 0,
             rubles: START_RUBLES,
-            items: START_KIT.iter().map(|&(id, n)| (id.to_string(), n)).collect(),
+            items: START_KIT
+                .iter()
+                .enumerate()
+                .map(|(i, &(id, n))| ItemStack::plain(i as u32 + 1, id, n))
+                .collect(),
             weapon: None,
             armor: None,
+            next_uid: START_KIT.len() as u32 + 1,
             rep: bg.rep.iter().map(|&(f, r)| (f.to_string(), r)).collect(),
             minutes: START_MINUTES,
             flags: HashSet::new(),
@@ -229,29 +239,91 @@ impl RunState {
         self.rep.get(faction).copied().unwrap_or(0)
     }
 
-    pub fn add_item(&mut self, id: &str, n: u32) {
-        match self.items.iter_mut().find(|(i, _)| i == id) {
-            Some(slot) => slot.1 += n,
-            None => self.items.push((id.to_string(), n)),
-        }
+    pub fn next_uid(&mut self) -> u32 {
+        self.next_uid += 1;
+        self.next_uid
     }
 
-    /// Removes `n` of `id`; returns false (and changes nothing) if there aren't enough.
-    pub fn take_item(&mut self, id: &str, n: u32) -> bool {
-        let Some(i) = self.items.iter().position(|(x, c)| x == id && *c >= n) else {
-            return false;
-        };
-        self.items[i].1 -= n;
-        if self.items[i].1 == 0 {
-            if self.weapon.as_deref() == Some(id) {
-                self.weapon = None;
+    /// Puts a rolled stack in the pack. Plain things merge with what is already
+    /// there; anything the Zone has marked stays its own object.
+    pub fn add_stack(&mut self, stack: ItemStack) {
+        if stack.is_plain() {
+            if let Some(slot) = self
+                .items
+                .iter_mut()
+                .find(|s| s.id == stack.id && s.is_plain())
+            {
+                slot.count += stack.count;
+                return;
             }
-            if self.armor.as_deref() == Some(id) {
-                self.armor = None;
-            }
-            self.items.remove(i);
         }
+        self.items.push(stack);
+    }
+
+    /// Plain items by id, which is how content, loot tables and quests speak.
+    pub fn add_item(&mut self, id: &str, n: u32) {
+        let uid = self.next_uid();
+        self.add_stack(ItemStack::plain(uid, id, n));
+    }
+
+    pub fn count_of(&self, id: &str) -> u32 {
+        self.items.iter().filter(|s| s.id == id).map(|s| s.count).sum()
+    }
+
+    pub fn stack(&self, uid: u32) -> Option<&ItemStack> {
+        self.items.iter().find(|s| s.uid == uid)
+    }
+
+    /// Removes `n` of `id`, plainest first, so handing a job its item does not spend
+    /// the good one. Returns false and changes nothing if there are not enough.
+    pub fn take_item(&mut self, id: &str, n: u32) -> bool {
+        if self.count_of(id) < n {
+            return false;
+        }
+        let mut left = n;
+        let mut order: Vec<usize> = (0..self.items.len()).filter(|&i| self.items[i].id == id).collect();
+        order.sort_by_key(|&i| self.items[i].affixes.len());
+        for i in order {
+            if left == 0 {
+                break;
+            }
+            let taken = left.min(self.items[i].count);
+            self.items[i].count -= taken;
+            left -= taken;
+        }
+        self.items.retain(|s| {
+            let keep = s.count > 0;
+            if !keep {
+                // Nothing stays equipped once it is gone.
+                if self.weapon == Some(s.uid) {
+                    self.weapon = None;
+                }
+                if self.armor == Some(s.uid) {
+                    self.armor = None;
+                }
+            }
+            keep
+        });
         true
+    }
+
+    /// Removes one whole stack by uid, whatever is on it.
+    pub fn take_uid(&mut self, uid: u32) -> Option<ItemStack> {
+        let i = self.items.iter().position(|s| s.uid == uid)?;
+        if self.weapon == Some(uid) {
+            self.weapon = None;
+        }
+        if self.armor == Some(uid) {
+            self.armor = None;
+        }
+        let mut stack = self.items.remove(i);
+        if stack.count > 1 {
+            stack.count -= 1;
+            let one = ItemStack { count: 1, ..stack.clone() };
+            self.items.insert(i, stack);
+            return Some(one);
+        }
+        Some(stack)
     }
 }
 
@@ -484,10 +556,43 @@ mod tests {
     fn take_item_is_all_or_nothing_and_unequips() {
         let mut r = RunState::roll(0, &[0, 1, 2], &mut Rng::new(1));
         r.add_item("pistol", 1);
-        r.weapon = Some("pistol".into());
+        let uid = r.items.iter().find(|s| s.id == "pistol").unwrap().uid;
+        r.weapon = Some(uid);
         assert!(!r.take_item("pistol", 2));
         assert!(r.take_item("pistol", 1));
-        assert_eq!(r.weapon, None);
-        assert!(!r.items.iter().any(|(i, _)| i == "pistol"));
+        assert_eq!(r.weapon, None, "what is gone cannot still be in your hand");
+        assert_eq!(r.count_of("pistol"), 0);
+    }
+
+    #[test]
+    fn plain_things_stack_and_marked_things_do_not() {
+        use crate::loot::Roll;
+        let mut r = RunState::roll(0, &[0, 1, 2], &mut Rng::new(1));
+        r.add_item("bolt", 3);
+        assert_eq!(r.count_of("bolt"), 8, "five in the kit, three more in");
+        assert_eq!(r.items.iter().filter(|s| s.id == "bolt").count(), 1);
+
+        // Two pistols the Zone has been at are two objects, not a stack of two.
+        let uid = r.next_uid();
+        r.add_stack(ItemStack {
+            uid,
+            id: "pistol".into(),
+            count: 1,
+            affixes: vec![Roll { affix: "keen".into(), magnitude: 6 }],
+        });
+        let uid = r.next_uid();
+        r.add_stack(ItemStack {
+            uid,
+            id: "pistol".into(),
+            count: 1,
+            affixes: vec![Roll { affix: "heavy".into(), magnitude: 2 }],
+        });
+        assert_eq!(r.items.iter().filter(|s| s.id == "pistol").count(), 2);
+
+        // A job takes the plain one first, so the good one stays in the pack.
+        r.add_item("pistol", 1);
+        assert!(r.take_item("pistol", 1));
+        assert_eq!(r.items.iter().filter(|s| s.id == "pistol").count(), 2);
+        assert!(r.items.iter().all(|s| s.id != "pistol" || !s.is_plain()));
     }
 }
