@@ -98,7 +98,8 @@ Repair (INT), Lockpick (PER), Science (INT), **Stalker Lore** (PER), Barter (CHA
 - Starting value = `10 + 3 × governing attribute`, plus background bonuses.
 - Choose 3 **tag** skills at creation: +15 each, and they level twice as fast.
 - Skills rise by use: a successful check on a skill under 50 has a 1-in-4 chance to add
-  +1; over 50, 1-in-10. `ponytail:` no XP table; use-to-improve is the whole system.
+  +1; over 50, 1-in-10. Tagged skills halve the odds, so they rise twice as fast. Only a
+  success teaches, which includes the 01 crit. `ponytail:` no XP table; use-to-improve is the whole system.
 
 ### The check
 
@@ -274,6 +275,15 @@ under 20% HP (bandits and Fleshes flee; Bloodsuckers and Controllers do not).
 **Roster order of implementation:** Bandit (human, gun), Flesh, Blind Dog, Bloodsucker
 (invisible until it attacks: PER check to act first), Controller (forces a will check
 each turn or lose the action), Pseudogiant (boss, guards the Room's approach).
+
+**Numbers not in the table above:** bare hands do 1d3 Melee. A fleeing enemy gives up
+one band per turn and only gets clear from far, so a wounded thing can still be caught.
+A turn ends when you can no longer afford the cheapest action (3 AP), and the menu only
+offers what your AP covers. Anomaly damage is the exception to armour: it ignores it.
+
+**In v1 so far:** the **Flesh** on the quarry rim (30 HP, 7 AP, skill 45, 2d6, armour 1,
+closes to melee, runs when hurt) drops a **Flesh Eye** worth 400 ₽. Weapons: a hunting
+knife (1d8 Melee, 150 ₽) and a PMm pistol (2d6 Small Guns, 900 ₽).
 
 Death ends the run. There is no unconsciousness.
 

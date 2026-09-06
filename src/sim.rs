@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use bevy::prelude::*;
 
 use crate::area::{Action, AnomalyData, AreaData, Gate, ItemKind, VendorStock, ZoneData};
-use crate::run::{check, Outcome, Rng, RunState, PER};
+use crate::run::{check, check_skill, Outcome, Rng, RunState, Skill, PER};
 
 // ---- the clock (GDD §5) ----
 
@@ -105,7 +105,7 @@ pub(crate) fn attr(run: &RunState, zone: &ZoneData, index: usize) -> i32 {
     (run.attrs[index] + bonus - rad_penalty(run.rads)).max(1)
 }
 
-fn carrying_light(run: &RunState, zone: &ZoneData) -> bool {
+pub(crate) fn carrying_light(run: &RunState, zone: &ZoneData) -> bool {
     run.items
         .iter()
         .any(|(id, _)| matches!(zone.items.get(id).map(|i| i.kind), Some(ItemKind::Light)))
@@ -250,8 +250,8 @@ pub(crate) fn scan(
     fields: &mut Fields,
     rng: &mut Rng,
 ) -> String {
-    let skill = run.skills[crate::run::Skill::StalkerLore.index()];
-    let outcome = check(skill, scan_modifier(run, zone), rng);
+    let modifier = scan_modifier(run, zone);
+    let outcome = check_skill(run, Skill::StalkerLore.index(), modifier, 1, rng);
     let taken = fields.get(area_id).taken;
     let state = fields.entry(area_id);
     match outcome {

@@ -1,6 +1,7 @@
-//! The Zone — M3 (the Zone breathes).
+//! The Zone — M4 (combat).
 
 mod area;
+mod combat;
 mod render;
 mod run;
 mod screens;
@@ -11,6 +12,7 @@ use bevy::prelude::*;
 use bevy::window::{PresentMode, WindowResolution};
 
 use area::{build_area_grid, Action, VendorStock, ZoneData};
+use combat::{build_combat_grid, Combat};
 use render::{render_grid, TileGrid};
 use run::{Rng, RunState, BACKGROUNDS, REST_COST, REST_RADS, SKILL_NAMES, TAG_COUNT};
 use screens::{
@@ -64,6 +66,7 @@ enum GameState {
     Area,
     Inventory,
     Trade,
+    Combat,
     GameOver,
 }
 
@@ -113,6 +116,7 @@ fn add_game(app: &mut App) -> &mut App {
         .init_resource::<TradeUi>()
         .init_resource::<GameClock>()
         .init_resource::<Fields>()
+        .init_resource::<Combat>()
         .init_resource::<Creation>()
         .init_resource::<TileGrid>()
         .init_state::<GameState>()
@@ -121,6 +125,7 @@ fn add_game(app: &mut App) -> &mut App {
         .add_systems(OnEnter(GameState::Area), redraw_area)
         .add_systems(OnEnter(GameState::Inventory), enter_inventory)
         .add_systems(OnEnter(GameState::Trade), enter_trade)
+        .add_systems(OnEnter(GameState::Combat), redraw_combat)
         .add_systems(OnEnter(GameState::GameOver), enter_gameover)
         .add_systems(
             Update,
@@ -129,6 +134,7 @@ fn add_game(app: &mut App) -> &mut App {
                 menu_input.run_if(in_state(GameState::Area)),
                 inventory_input.run_if(in_state(GameState::Inventory)),
                 trade_input.run_if(in_state(GameState::Trade)),
+                combat_input.run_if(in_state(GameState::Combat)),
                 gameover_input.run_if(in_state(GameState::GameOver)),
             )
                 .in_set(GameInput),
@@ -139,7 +145,7 @@ fn main() {
     let mut app = App::new();
     app.add_plugins(DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window {
-            title: "The Zone — M3".into(),
+            title: "The Zone — M4".into(),
             resolution: WindowResolution::new(1280, 720).with_scale_factor_override(1.0),
             present_mode: PresentMode::AutoVsync,
             ..default()
@@ -274,6 +280,7 @@ struct Act<'w> {
     stock: ResMut<'w, VendorStock>,
     rng: ResMut<'w, Rng>,
     trade_ui: ResMut<'w, TradeUi>,
+    combat: ResMut<'w, Combat>,
     zone: Res<'w, ZoneData>,
 }
 
@@ -423,8 +430,107 @@ fn perform(action: &Action, act: &mut Act, next_state: &mut NextState<GameState>
 
     if check_death(&mut act.run) {
         next_state.set(GameState::GameOver);
+        return moved.is_some();
+    }
+    // Something may live here. It gets one go at you per run.
+    if moved.is_some() {
+        if let Some(enemy) = act.zone.areas[now.as_str()].encounter.clone() {
+            // One resident, one fight per run.
+            if act.run.flags.insert(format!("met:{now}")) {
+                let combat = &mut *act.combat;
+                act.message.0 = combat::start(&enemy, combat, &act.run, &act.zone);
+                next_state.set(GameState::Combat);
+            }
+        }
     }
     moved.is_some()
+}
+
+// ---- combat ----
+
+fn redraw_combat(
+    mut grid: ResMut<TileGrid>,
+    zone: Res<ZoneData>,
+    run: Res<RunState>,
+    clock: Res<GameClock>,
+    fields: Res<Fields>,
+    combat: Res<Combat>,
+    area: Res<CurrentArea>,
+    message: Res<MessageLine>,
+) {
+    build_combat_grid(
+        &mut grid,
+        &zone,
+        &run,
+        &clock,
+        &fields,
+        &combat,
+        &area.0,
+        &message.0,
+    );
+}
+
+fn combat_input(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut grid: ResMut<TileGrid>,
+    mut combat: ResMut<Combat>,
+    mut run: ResMut<RunState>,
+    mut message: ResMut<MessageLine>,
+    mut rng: ResMut<Rng>,
+    zone: Res<ZoneData>,
+    clock: Res<GameClock>,
+    fields: Res<Fields>,
+    area: Res<CurrentArea>,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    // SPEC §6: no Esc out of a fight. Tab still reaches the pack, at 4 AP an item.
+    if keys.just_pressed(KeyCode::Tab) {
+        next_state.set(GameState::Inventory);
+        return;
+    }
+
+    let menu = combat::menu(&combat, &run, &zone);
+    let n = menu.len();
+    let mut changed = false;
+
+    if keys.just_pressed(KeyCode::ArrowUp) {
+        combat.sel = (combat.sel + n - 1) % n;
+        changed = true;
+    }
+    if keys.just_pressed(KeyCode::ArrowDown) {
+        combat.sel = (combat.sel + 1) % n;
+        changed = true;
+    }
+    if keys.just_pressed(KeyCode::Enter) {
+        let verb = menu[combat.sel.min(n - 1)].1;
+        message.0 = combat::act(verb, &mut combat, &mut run, &zone, &mut rng);
+        changed = true;
+    }
+
+    if !changed {
+        return;
+    }
+    if check_death(&mut run) {
+        next_state.set(GameState::GameOver);
+        return;
+    }
+    if !combat.active {
+        next_state.set(GameState::Area);
+        return;
+    }
+    // The menu shrinks as the bands change; keep the cursor on something real.
+    let n = combat::menu(&combat, &run, &zone).len();
+    combat.sel = combat.sel.min(n.saturating_sub(1));
+    build_combat_grid(
+        &mut grid,
+        &zone,
+        &run,
+        &clock,
+        &fields,
+        &combat,
+        &area.0,
+        &message.0,
+    );
 }
 
 // ---- inventory ----
@@ -435,13 +541,18 @@ fn inventory_input(
     mut run: ResMut<RunState>,
     mut message: ResMut<MessageLine>,
     mut grid: ResMut<TileGrid>,
+    mut combat: ResMut<Combat>,
+    mut rng: ResMut<Rng>,
     zone: Res<ZoneData>,
     clock: Res<GameClock>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
+    let back = if combat.active { GameState::Combat } else { GameState::Area };
     if keys.just_pressed(KeyCode::Escape) || keys.just_pressed(KeyCode::Tab) {
-        message.0.clear();
-        next_state.set(GameState::Area);
+        if !combat.active {
+            message.0.clear();
+        }
+        next_state.set(back);
         return;
     }
 
@@ -457,8 +568,20 @@ fn inventory_input(
             changed = true;
         }
         if keys.just_pressed(KeyCode::Enter) {
-            message.0 = use_item(&zone, &mut run, cursor.0);
-            cursor.0 = cursor.0.min(run.items.len().saturating_sub(1));
+            // GDD §8: rummaging in a fight costs 4 AP, and may hand the turn over.
+            if combat.active && combat.ap < combat::AP_ITEM {
+                message.0 = "No AP left for that.".into();
+            } else {
+                let (msg, acted) = use_item(&zone, &mut run, cursor.0);
+                message.0 = msg;
+                cursor.0 = cursor.0.min(run.items.len().saturating_sub(1));
+                if combat.active && acted {
+                    combat.ap -= combat::AP_ITEM;
+                    if let Some(theirs) = combat::end_turn(&mut combat, &mut run, &zone, &mut rng) {
+                        message.0 = format!("{} {theirs}", message.0);
+                    }
+                }
+            }
             changed = true;
         }
     }
@@ -642,7 +765,7 @@ mod playthrough {
         fn choose(&mut self, label: &str) -> &mut Self {
             let wanted = format!("> {label}");
             for _ in 0..6 {
-                if (22..27).any(|y| self.row(y) == wanted) {
+                if (22..27).any(|y| self.row(y).starts_with(&wanted)) {
                     return self.press(KeyCode::Enter);
                 }
                 self.press(KeyCode::ArrowDown);
@@ -660,6 +783,61 @@ mod playthrough {
 
         fn run_mut(&mut self) -> Mut<'_, RunState> {
             self.app.world_mut().resource_mut::<RunState>()
+        }
+
+        /// Hands the stalker a weapon they can actually use, and the skill to use it.
+        fn arm_with(&mut self, item: &str) -> &mut Self {
+            let mut run = self.run_mut();
+            run.add_item(item, 1);
+            run.weapon = Some(item.into());
+            run.add_item("vest", 1);
+            run.armor = Some("vest".into());
+            run.skills[Skill::SmallGuns.index()] = 90;
+            run.skills[Skill::Melee.index()] = 90;
+            self
+        }
+
+        fn combat(&self) -> &Combat {
+            self.app.world().resource::<Combat>()
+        }
+
+        /// Camp to the quarry rim, the long way, through the anomaly field.
+        fn walk_to_the_rim(&mut self) -> &mut Self {
+            self.choose("Travel");
+            self.choose("Cut toward the field");
+            self.run_mut().skills[Skill::StalkerLore.index()] = 95;
+            self.choose("Scan");
+            self.choose("Push Through")
+        }
+
+        /// Picks an item out of the open inventory by name and uses it.
+        fn choose_item(&mut self, name: &str) -> &mut Self {
+            for _ in 0..12 {
+                if (4..16).any(|y| self.row(y).starts_with(&format!("> {name}"))) {
+                    return self.press(KeyCode::Enter);
+                }
+                self.press(KeyCode::ArrowDown);
+            }
+            panic!("no item `{name}` on:\n{}", self.screen());
+        }
+
+        /// Plays the fight out: shoot when the weapon reaches, otherwise close.
+        /// Panics rather than looping forever if combat will not resolve.
+        fn fight(&mut self) -> &mut Self {
+            for _ in 0..60 {
+                if self.state() != GameState::Combat {
+                    return self;
+                }
+                // Shoot when the AP and the range allow, otherwise reposition.
+                if (22..27).any(|y| self.row(y).contains("Attack (")) {
+                    self.choose("Attack");
+                } else if (22..27).any(|y| self.row(y).contains("Close In")) {
+                    self.choose("Close In");
+                } else {
+                    self.choose("Fall Back");
+                }
+            }
+            panic!("the fight never ended:\n{}", self.screen());
         }
 
         /// Background 0 (Loner), the first three skills tagged.
@@ -719,8 +897,20 @@ mod playthrough {
         let hp = sim.run().hp;
         sim.choose("Scan");
         sim.choose("Push Through");
-        sim.assert_shows("A quarry rim above black water");
         assert_eq!(sim.run().hp, hp, "a scanned field is crossed unharmed");
+
+        // Something lives on the rim. Shoot it, and it drops something worth money.
+        assert_eq!(sim.state(), GameState::Combat);
+        sim.assert_shows("A Flesh comes at you");
+        sim.arm_with("pistol");
+        sim.fight();
+        assert_eq!(sim.state(), GameState::Area);
+        assert!(
+            sim.run().items.iter().any(|(i, _)| i == "flesh_eye"),
+            "a dead Flesh pays for the trip:\n{}",
+            sim.screen()
+        );
+        sim.assert_shows("A quarry rim above black water");
 
         // The flag set back in the hatch is what lights S here.
         assert!(sim.run().is_revealed("quarry", 'S'));
@@ -745,6 +935,70 @@ mod playthrough {
             revealed,
             "the key works exactly when the letter is lit"
         );
+    }
+
+    #[test]
+    fn a_fight_is_fought_in_action_points_across_the_bands() {
+        let mut sim = Sim::new();
+        sim.roll_a_stalker();
+        sim.arm_with("pistol");
+        sim.walk_to_the_rim();
+
+        // A fight opens at far, with a full turn of AP (GDD §4: 5 + AGI/2).
+        assert_eq!(sim.state(), GameState::Combat);
+        let ap = sim.combat().ap;
+        assert_eq!(ap, 5 + sim.run().attrs[run::AGI] / 2);
+        sim.assert_shows("Flesh");
+        sim.assert_shows("far");
+        sim.assert_shows("AP 7");
+
+        // A pistol reaches across the field, and shooting costs 4 of those points.
+        // The turn is not over: 3 AP still buys a move.
+        sim.choose("Attack");
+        assert_eq!(sim.combat().ap, ap - combat::AP_ATTACK);
+        sim.choose("Close In");
+
+        // Spending the last of it hands the turn over, and a Flesh can only bite,
+        // so it closes the rest of the distance itself.
+        assert_eq!(sim.combat().band, combat::Band::Melee, "you closed, then it did");
+        assert_eq!(sim.combat().ap, ap, "a fresh turn comes back");
+
+        // Rummaging mid-fight is the footer's Inventory, and it is not free.
+        sim.run_mut().hp = 10;
+        sim.press(KeyCode::Tab);
+        assert_eq!(sim.state(), GameState::Inventory);
+        sim.choose_item("Medkit");
+        assert!(sim.run().hp > 10, "the medkit went in");
+        assert_eq!(sim.combat().ap, ap - combat::AP_ITEM, "and it cost 4 AP");
+        sim.press(KeyCode::Tab);
+        assert_eq!(sim.state(), GameState::Combat, "Tab goes back to the fight");
+
+        // There is no walking away from a fight with Esc (SPEC §6).
+        sim.press(KeyCode::Escape);
+        assert_eq!(sim.state(), GameState::Combat);
+
+        sim.fight();
+        assert_eq!(sim.state(), GameState::Area);
+        assert!(!sim.combat().active);
+    }
+
+    #[test]
+    fn a_fight_can_kill_you() {
+        let mut sim = Sim::new();
+        sim.roll_a_stalker();
+        sim.walk_to_the_rim();
+        assert_eq!(sim.state(), GameState::Combat);
+
+        // Unarmed, at one hit point, against a Flesh. This ends one way.
+        sim.run_mut().hp = 1;
+        for _ in 0..40 {
+            if sim.state() != GameState::Combat {
+                break;
+            }
+            sim.choose("Close In");
+        }
+        assert_eq!(sim.state(), GameState::GameOver);
+        sim.assert_shows("THE ZONE IS STILL THERE");
     }
 
     #[test]

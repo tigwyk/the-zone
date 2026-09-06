@@ -25,6 +25,7 @@ src/area.rs        .area loader, zone.ron loader, scene build_grid (split in M1)
 src/run.rs         RunState, Rng, check(), price()                    (M2)
 src/screens.rs     modal screens (creation, inventory, trade) + chrome (M2)
 src/sim.rs         clock, radiation, emissions, anomaly fields, gates    (M3)
+src/combat.rs      bands, AP turns, the enemy machine, the combat screen (M4)
 assets/data/       all game content — see §5
 PLAN.md GDD.md SPEC.md
 ```
@@ -53,7 +54,9 @@ Every screen in the game is a `build_grid`-style function that writes into the o
   can be replayed from its seed. No `rand::thread_rng()` in game logic.
 - **All skill checks go through `check(skill, modifiers, &mut rng) -> Outcome`**
   (`Outcome { CritFail, Fail, Success, CritSuccess }`). Callers never roll d100
-  themselves.
+  themselves. `check_crit(.., crit_on, ..)` widens the crit window (an aimed shot
+  crits on 5); `check_skill(&mut run, skill, .., rng)` is the one to call when the
+  stalker is practising, because it also lets the skill improve on a success.
 - **All prices go through `price(item, vendor, run, buying: bool) -> u32`.**
 - Logging is for developers; players see `MessageLine`. Any `info!` describing an
   in-game event is a bug.
@@ -155,7 +158,8 @@ Items and vendors sit in the same file (SPEC §5.3 carves them out later):
     },
 ```
 
-`ItemKind`: `Heal(i32)`, `Antirad(i32)`, `Weapon(i32)` (damage), `Armor(i32)`
+`ItemKind`: `Heal(i32)`, `Antirad(i32)`, `Weapon(dice: (u32, u32), skill: Skill)`,
+`Armor(i32)`
 (damage resistance), `Artifact(attr: usize, bonus: i32, rads: i32)` (carried: shifts one
 attribute, costs rads every hour), `Light` (cancels the night PER penalty), `Misc`.
 A vendor's optional `artifact_markup` (default 1.0) multiplies its own markup on
@@ -178,7 +182,20 @@ anomaly verbs (the loader checks):
 `danger` is the percent chance that `PushThrough` hurts; `dice` is contact damage NdS.
 `TakeArtifact` is dropped from the rendered menu until something reveals an artifact.
 
-Menus have at most 5 entries. A secret letter must not also be a menu key (menus have
+An area may name one resident, fought once per run on arrival, and enemies are their
+own table:
+
+```ron
+        "quarry": Area(..., encounter: Some("flesh"), ...),
+    enemies: {
+        "flesh": Enemy(name: "Flesh", hp: 30, ap: 7, skill: 45, dice: (2, 6),
+                       armor: 1, melee_only: true, flees: true,
+                       loot: [("flesh_eye", 1)]),
+    },
+```
+
+Menus have at most 5 entries — the combat menu included, which is why using an item in
+a fight is the footer's Inventory (4 AP) rather than a sixth verb. A secret letter must not also be a menu key (menus have
 no letter keys, so this is automatic; keep it that way).
 
 ### 5.3 Later files

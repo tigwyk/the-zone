@@ -65,6 +65,7 @@ Zone(
             name: "The Quarry Rim",
             art: "quarry",
             shelter: false,
+            encounter: Some("flesh"),
             menu: [
                 ("Look", Say("Black water, and the pumps long dead.")),
                 ("Search", Say("Rust, and rust under the rust.")),
@@ -85,10 +86,25 @@ Zone(
         "bread": Item(name: "Stale Loaf", base: 40, kind: Heal(4)),
         "bolt": Item(name: "Bolt", base: 5, kind: Misc),
         "flashlight": Item(name: "Flashlight", base: 200, kind: Light),
-        "pistol": Item(name: "PMm Pistol", base: 900, kind: Weapon(8)),
+        "knife": Item(name: "Hunting Knife", base: 150, kind: Weapon(dice: (1, 8), skill: Melee)),
+        "pistol": Item(name: "PMm Pistol", base: 900, kind: Weapon(dice: (2, 6), skill: SmallGuns)),
         "jacket": Item(name: "Leather Jacket", base: 400, kind: Armor(2)),
         "vest": Item(name: "Stalker Vest", base: 1400, kind: Armor(5)),
         "gravi": Item(name: "Gravi", base: 3000, kind: Artifact(attr: 0, bonus: 1, rads: 4)),
+        "flesh_eye": Item(name: "Flesh Eye", base: 400, kind: Misc),
+    },
+    enemies: {
+        "flesh": Enemy(
+            name: "Flesh",
+            hp: 30,
+            ap: 7,
+            skill: 45,
+            dice: (2, 6),
+            armor: 1,
+            melee_only: true,
+            flees: true,
+            loot: [("flesh_eye", 1)],
+        ),
     },
     vendors: {
         "trader": Vendor(
@@ -102,6 +118,7 @@ Zone(
                 ("antirad", 2),
                 ("bread", 4),
                 ("bolt", 20),
+                ("knife", 1),
                 ("flashlight", 1),
                 ("pistol", 1),
                 ("jacket", 1),

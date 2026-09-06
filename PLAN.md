@@ -18,50 +18,59 @@ hidden-letter secrets · **Bevy text pass, not a glyph atlas** (locked in M0, se
 
 ## 0. Where we are (2026-09-05)
 
-Six modules on Bevy 0.19.1, fully data-driven: `main.rs` (app, states, input),
+Seven modules on Bevy 0.19.1, fully data-driven: `main.rs` (app, states, input),
 `render.rs` (glyph, palette, renderer), `area.rs` (loaders, scene build), `run.rs` (the
-stalker), `screens.rs` (modal screens), `sim.rs` (the Zone acting on you). An 80x30
-`TileGrid` blitted as one `Text2d` with a `TextSpan` per same-colour run; one `Palette`
-const; screen origin derived from the window size.
-`States { CharacterCreation, Area, Inventory, Trade, GameOver }`.
+stalker), `screens.rs` (modal screens), `sim.rs` (the Zone acting on you), `combat.rs`
+(bands, AP turns, the enemy machine). An 80x30 `TileGrid` blitted as one `Text2d` with a
+`TextSpan` per same-colour run; one `Palette` const; screen origin derived from the
+window size.
+`States { CharacterCreation, Area, Inventory, Trade, Combat, GameOver }`.
 
-**M0 through M3 are done.** A run starts at the creation screen (background, three tag
-skills) and rolls a `RunState`. `Tab` opens a real inventory (use meds, equip, read your
-stats); Sidorovich opens Trade, with prices through the one `price()` formula plus
-Barter, rep, and an artifact mark-up. Beyond the road lies the **Whirligig field**: its
-tells stay dull until you Scan, a Bolt buys you the next step's answer, Push Through is
-the gamble, and the artifact you lift pays +1 STR and 4 rads an hour until you sell it.
-The clock runs on every action; **emissions** come every 3-5 days with an hour's warning
-on the status row, and cost 400 rads and half your health unless you are under cover -
-then they restock the vendors and reshuffle the fields. Radiation drags your attributes
-down by the GDD table and kills at 1000; a dead stalker gets an end screen. Hidden
-letters are now **gated**: the field's `G` needs a Stalker Lore check rolled once per
-run, and the quarry's `S` stays plain art until you have read the log in the hatch.
+**M0 through M4 are done.** A run starts at the creation screen and rolls a `RunState`.
+`Tab` opens a real inventory; Sidorovich opens Trade, with prices through the one
+`price()` formula plus Barter, rep, and an artifact mark-up. Beyond the road lies the
+**Whirligig field**: its tells stay dull until you Scan, a Bolt buys you the next step's
+answer, Push Through is the gamble, and the artifact you lift pays +1 STR and 4 rads an
+hour until you sell it. The clock runs on every action; **emissions** come every 3-5 days
+with an hour's warning, and cost 400 rads and half your health unless you are under
+cover. Radiation drags your attributes down and kills at 1000. Hidden letters are
+**gated**: the field's `G` needs a Stalker Lore check rolled once per run, and the
+quarry's `S` stays plain art until you have read the log in the hatch.
+
+On the quarry rim a **Flesh** is waiting. Combat is turn-based over three range bands
+with Fallout's AP economy: 5 + AGI/2 a turn, 4 to shoot, 6 to aim (+20, crits on 5),
+3 to change band, 4 to dig a medkit out of the pack. A melee weapon only reaches at
+melee, so a knife means closing first; the Flesh can only bite, so it spends its turns
+closing on you. Hurt it below a fifth of its health and it starts backing off a band a
+turn - catch it or lose the Flesh Eye it is carrying. Skills now **rise by use** (GDD §4),
+which is what M4's "XP" means here: the GDD rules out an XP table, so practising a skill
+is the whole progression system, and tagged skills rise twice as fast.
 
 **The game tests itself.** `add_game` registers every resource, state and input system;
 `main` adds only the window, camera and `render_grid`. So `cargo test` builds the same
 app headless on `MinimalPlugins`, presses keys into it and reads the `TileGrid` back as
-text - the milestone acceptance play-throughs are now tests, not something a human has
-to sit and do. Writing the first one immediately caught a shipped layout bug (the
-creation header ran under the preview column and rendered as `rises twiLoner fast`),
-so there is a gutter guard to stop that class coming back.
+text - the milestone acceptance play-throughs are tests, not something a human has to
+sit and do.
 
-Twenty-six tests green - five of them whole play-throughs (creation to camp; the camp
-letter to the hatch to the log to the quarry crate; an unrevealed letter staying inert;
-the counter taking rubles into a usable pack; resting, then dying of radiation) - plus: `.area` marker parsing and duplicate rejection, a real `zone.ron` load, `check()` crit edges, d100 range, price direction and GDD anchors,
-character roll, item removal, the trade round trip, affordability, hostile refusal,
-healing, the radiation table, night hours, artifact rads and bonuses, emission shelter
-and reset, bolts and scanned crossings, artifact-taken-once, flag gates, check gates
-rolled once, and a build-every-screen smoke test.
+Thirty-five tests green - seven of them whole play-throughs (creation to camp; the camp
+letter to the hatch to the log to the field to the Flesh to the quarry crate; an
+unrevealed letter staying inert; a fight fought in AP across the bands; a fight that
+kills you; the counter taking rubles into a usable pack; resting, then dying of
+radiation) - plus the loaders, `check()` crit edges and the aimed-shot window,
+skill-rise-by-use, price direction and GDD anchors, the radiation table, night hours,
+artifact rads, emission shelter and reset, bolts and scanned crossings, gates, the band
+table, crit damage through armour, melee reach, the mutant's approach, the flee window
+and loot, and a build-every-screen smoke test.
 
 Deliberate simplifications, documented in code:
 - No `rand` dependency: a six-line seeded xorshift covers d100 (`ponytail:` in `run.rs`).
-- Anomaly damage ignores armour, and a scanned field is simply safe to cross rather than
-  growing a separate safe-path verb.
-- Emissions do not swap an area's menu (no `Shelter` verb, no `Travel` removal); the
-  hour of warning is the whole mechanic.
+- No roving encounters - an area names one resident, fought once per run. A `chance`
+  field on the encounter is the upgrade path.
+- No cover, no encumbrance, and no ammo, so three of GDD §8's to-hit modifiers and the
+  Reload verb have nothing to hang on yet.
+- Anomaly damage ignores armour, and a scanned field is simply safe to cross.
+- Emissions do not swap an area's menu; the hour of warning is the whole mechanic.
 - The end screen just ends. Memorial, meta-progress and rolling a new stalker are M6.
-- Skills do not yet rise by use (GDD §4) - the first thing to add on top of M3.
 - All four backgrounds are selectable; their unlock conditions need `MetaProgress` (M6).
 - `#!` color-override lines in `.area` files are not implemented yet (no override needed).
 
@@ -163,8 +172,10 @@ revisit only if we ever animate per-frame.
 
 This is a menu-driven solo game: there is no world of entities to simulate. **Game state
 lives in resources; ECS entities exist only for rendering** (the screen entity and its
-spans). Don't reach for `Component`s until something genuinely has many instances
-(combat enemies in M4 are the first real case).
+spans). Don't reach for `Component`s until something genuinely has many instances.
+M4 was expected to be the first real case and was not: one enemy at a time fits in a
+`Combat` resource, so entities still exist only for rendering. Revisit if a fight ever
+holds several enemies at once.
 
 **Game-flow `States`:** `MainMenu` → `CharacterCreation` → `Area` → (`Dialogue` /
 `Combat` / `Trade` / `Inventory` / `Map`) → `GameOver` / `Ending`. `Area` is the main
@@ -349,7 +360,9 @@ This is what lets the game grow into "content" instead of "code" after M5.
 - [x] **M3 — The Zone breathes.** Anomaly-field areas + bolts + detection, artifacts,
   radiation, day/night + emission; gated hidden letters (skill checks / flags).
   *(Done, 2026-09.)*
-- [ ] **M4 — Combat.** Turn-based AP combat with range bands, one mutant, XP/loot.
+- [x] **M4 — Combat.** Turn-based AP combat with range bands, one mutant, XP/loot.
+  *(Done, 2026-09.* "XP" is GDD §4's skill-rise-by-use; the GDD rules out an XP table
+  and wins on design.*)*
 - [ ] **M5 — World & story.** Area network + Map screen, NPCs, dialogue, quests,
   factions, more vendors. Split `zone.ron` here.
 - [ ] **M6 — The end.** Room/Wish Granter, multiple endings, permadeath + suspend +

@@ -289,16 +289,46 @@ pub(crate) const DIFF_HARD: i32 = -20;
 #[allow(dead_code)]
 pub(crate) const DIFF_VERY_HARD: i32 = -40;
 
-/// The only d100 roll-under in the game. First gameplay caller is the gated
-/// hidden letter in M3; the crit edges are pinned by a test now.
-#[allow(dead_code)]
+/// The only d100 roll-under in the game.
 pub(crate) fn check(skill: i32, modifier: i32, rng: &mut Rng) -> Outcome {
-    outcome(rng.roll(100), skill, modifier)
+    check_crit(skill, modifier, 1, rng)
 }
 
-fn outcome(roll: u32, skill: i32, modifier: i32) -> Outcome {
+/// As `check`, but crits on a roll at or under `crit_on` — an aimed shot crits on 5
+/// where everything else crits only on 1 (GDD §8).
+pub(crate) fn check_crit(skill: i32, modifier: i32, crit_on: u32, rng: &mut Rng) -> Outcome {
+    outcome(rng.roll(100), skill, modifier, crit_on)
+}
+
+/// Rolls one of the stalker's own skills, and lets it improve on a success (GDD §4).
+/// Anything the player is *practising* goes through here rather than `check`.
+pub(crate) fn check_skill(
+    run: &mut RunState,
+    skill: usize,
+    modifier: i32,
+    crit_on: u32,
+    rng: &mut Rng,
+) -> Outcome {
+    let out = check_crit(run.skills[skill], modifier, crit_on, rng);
+    if matches!(out, Outcome::Success | Outcome::CritSuccess) {
+        improve(run, skill, rng);
+    }
+    out
+}
+
+/// GDD §4: a success on a skill under 50 improves it 1 time in 4, over 50 1 in 10.
+/// A tagged skill rises twice as fast.
+fn improve(run: &mut RunState, skill: usize, rng: &mut Rng) {
+    let odds = if run.skills[skill] < 50 { 4 } else { 10 };
+    let odds = if run.tags[skill] { odds / 2 } else { odds };
+    if rng.roll(odds) == 1 {
+        run.skills[skill] += 1;
+    }
+}
+
+fn outcome(roll: u32, skill: i32, modifier: i32, crit_on: u32) -> Outcome {
     match roll {
-        1 => Outcome::CritSuccess,
+        r if r <= crit_on => Outcome::CritSuccess,
         100 => Outcome::CritFail,
         r if r as i32 <= skill + modifier => Outcome::Success,
         _ => Outcome::Fail,
@@ -340,11 +370,45 @@ mod tests {
     #[test]
     fn d100_crit_edges() {
         // 1 always crits up and 100 always crits down, whatever the skill.
-        assert_eq!(outcome(1, 0, -40), Outcome::CritSuccess);
-        assert_eq!(outcome(100, 100, 20), Outcome::CritFail);
-        assert_eq!(outcome(50, 50, 0), Outcome::Success);
-        assert_eq!(outcome(51, 50, 0), Outcome::Fail);
-        assert_eq!(outcome(51, 50, 20), Outcome::Success);
+        assert_eq!(outcome(1, 0, -40, 1), Outcome::CritSuccess);
+        assert_eq!(outcome(100, 100, 20, 1), Outcome::CritFail);
+        assert_eq!(outcome(50, 50, 0, 1), Outcome::Success);
+        assert_eq!(outcome(51, 50, 0, 1), Outcome::Fail);
+        assert_eq!(outcome(51, 50, 20, 1), Outcome::Success);
+        // An aimed shot widens the crit window to 5 and nothing else (GDD §8).
+        assert_eq!(outcome(5, 50, 0, 5), Outcome::CritSuccess);
+        assert_eq!(outcome(6, 50, 0, 5), Outcome::Success);
+        assert_eq!(outcome(100, 100, 0, 5), Outcome::CritFail);
+    }
+
+    #[test]
+    fn skills_rise_by_use_and_tags_rise_faster() {
+        // Practise a tagged skill under 50 (1 in 2) and an untagged one (1 in 4);
+        // both must climb, and the tagged one must climb faster.
+        let mut rng = Rng::new(99);
+        let mut run = RunState::roll(0, &[2, 3, 4]);
+        run.skills[2] = 20;
+        run.skills[0] = 20;
+        for _ in 0..400 {
+            check_skill(&mut run, 2, 100, 1, &mut rng);
+            check_skill(&mut run, 0, 100, 1, &mut rng);
+        }
+        assert!(run.skills[2] > 20 && run.skills[0] > 20, "use raises a skill");
+        assert!(
+            run.skills[2] - 20 > run.skills[0] - 20,
+            "tagged {} vs untagged {}",
+            run.skills[2],
+            run.skills[0]
+        );
+
+        // Only a success teaches. At hopeless odds the only teacher left is the
+        // 1-in-100 crit, so the skill barely moves instead of not moving at all.
+        let mut run = RunState::roll(0, &[0, 1, 2]);
+        let before = run.skills[5];
+        for _ in 0..200 {
+            check_skill(&mut run, 5, -1000, 1, &mut rng);
+        }
+        assert!(run.skills[5] - before < 3, "failure is not practice");
     }
 
     #[test]

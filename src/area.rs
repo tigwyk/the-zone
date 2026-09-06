@@ -27,6 +27,28 @@ struct Zone {
     items: HashMap<String, ItemData>,
     #[serde(default)]
     vendors: HashMap<String, VendorData>,
+    #[serde(default)]
+    enemies: HashMap<String, EnemyData>,
+}
+
+/// One thing that fights back (GDD §8).
+#[derive(Deserialize, Clone)]
+#[serde(rename = "Enemy")]
+pub(crate) struct EnemyData {
+    pub name: String,
+    pub hp: i32,
+    pub ap: i32,
+    /// To-hit skill, rolled under like any other check.
+    pub skill: i32,
+    pub dice: (u32, u32),
+    pub armor: i32,
+    /// A mutant that can only bite has to close the band first.
+    #[serde(default)]
+    pub melee_only: bool,
+    /// GDD §8: bandits and Fleshes run at under 20% HP; bloodsuckers do not.
+    #[serde(default)]
+    pub flees: bool,
+    pub loot: Vec<(String, u32)>,
 }
 
 #[derive(Deserialize)]
@@ -40,6 +62,10 @@ struct Area {
     secrets: HashMap<char, Secret>,
     #[serde(default)]
     anomaly: Option<AnomalyData>,
+    /// The thing that lives here. Fought once per run, on arrival.
+    /// `ponytail:` no roving encounters yet - a `chance` field is the upgrade path.
+    #[serde(default)]
+    encounter: Option<String>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -97,7 +123,8 @@ pub(crate) struct ItemData {
 pub(crate) enum ItemKind {
     Heal(i32),
     Antirad(i32),
-    Weapon(i32),
+    /// Damage dice NdS, and the skill that swings or fires it (GDD §8).
+    Weapon { dice: (u32, u32), skill: Skill },
     Armor(i32),
     /// Carried: +bonus to one attribute, +rads every hour (GDD §6).
     Artifact { attr: usize, bonus: i32, rads: i32 },
@@ -133,6 +160,7 @@ pub(crate) struct AreaData {
     pub secrets: HashMap<char, Secret>,
     pub secret_cells: Vec<(usize, usize, char)>,
     pub anomaly: Option<AnomalyData>,
+    pub encounter: Option<String>,
 }
 
 #[derive(Resource)]
@@ -141,6 +169,7 @@ pub(crate) struct ZoneData {
     pub areas: HashMap<String, AreaData>,
     pub items: HashMap<String, ItemData>,
     pub vendors: HashMap<String, VendorData>,
+    pub enemies: HashMap<String, EnemyData>,
 }
 
 impl FromWorld for ZoneData {
@@ -199,6 +228,7 @@ pub(crate) fn load_zone(data_dir: &Path) -> ZoneData {
                 secrets,
                 secret_cells,
                 anomaly: a.anomaly,
+                encounter: a.encounter,
             },
         );
     }
@@ -213,6 +243,7 @@ pub(crate) fn load_zone(data_dir: &Path) -> ZoneData {
         areas,
         items: zone.items,
         vendors: zone.vendors,
+        enemies: zone.enemies,
     };
     data.validate_ids();
     data
@@ -262,6 +293,22 @@ impl ZoneData {
                     self.areas.contains_key(&anomaly.beyond),
                     "zone.ron: field '{id}' leads to unknown area '{}'",
                     anomaly.beyond
+                );
+            }
+        }
+        for (id, area) in &self.areas {
+            if let Some(enemy) = &area.encounter {
+                assert!(
+                    self.enemies.contains_key(enemy),
+                    "zone.ron: area '{id}' is home to unknown enemy '{enemy}'"
+                );
+            }
+        }
+        for (id, e) in &self.enemies {
+            for (item, _) in &e.loot {
+                assert!(
+                    self.items.contains_key(item),
+                    "zone.ron: enemy '{id}' drops unknown item '{item}'"
                 );
             }
         }
@@ -391,13 +438,39 @@ pub(crate) fn build_area_grid(
     message: &str,
 ) {
     grid.clear();
+    draw_art(grid, zone, run, fields, area_id);
     let area = &zone.areas[area_id];
-    let state = fields.get(area_id);
 
+    // Description rows 19-20.
+    for (dy, line) in area.desc.iter().enumerate() {
+        grid.text(0, DESC_ROW + dy, line, PALETTE.desc, false);
+    }
+
+    // Menu rows 22-26.
+    for (i, (label, _)) in visible_menu(area, fields, area_id).iter().enumerate() {
+        let fg = if i == sel { PALETTE.menu_sel } else { PALETTE.menu };
+        let prefix = if i == sel { "> " } else { "  " };
+        grid.text(0, MENU_ROW + i, prefix, fg, false);
+        grid.text(2, MENU_ROW + i, label, fg, false);
+    }
+
+    grid.text(0, MESSAGE_ROW, message, PALETTE.desc, false);
+    draw_chrome(grid, run, clock);
+}
+
+/// Rows 0-17: the scene itself. Combat draws over the rest of the screen but keeps
+/// this, so a fight happens somewhere (GDD §8).
+pub(crate) fn draw_art(
+    grid: &mut TileGrid,
+    zone: &ZoneData,
+    run: &RunState,
+    fields: &Fields,
+    area_id: &str,
+) {
+    let area = &zone.areas[area_id];
     // An unscanned field keeps its tells dull; Scan is what lights them amber (GDD §6).
-    let tells_lit = area.anomaly.is_none() || state.scanned;
+    let tells_lit = area.anomaly.is_none() || fields.get(area_id).scanned;
 
-    // Art rows 0-17.
     for (y, line) in area.art.iter().enumerate() {
         for (x, ch) in line.chars().enumerate() {
             let mut g = Glyph {
@@ -419,22 +492,6 @@ pub(crate) fn build_area_grid(
             grid.set(x, y, g);
         }
     }
-
-    // Description rows 19-20.
-    for (dy, line) in area.desc.iter().enumerate() {
-        grid.text(0, DESC_ROW + dy, line, PALETTE.desc, false);
-    }
-
-    // Menu rows 22-26.
-    for (i, (label, _)) in visible_menu(area, fields, area_id).iter().enumerate() {
-        let fg = if i == sel { PALETTE.menu_sel } else { PALETTE.menu };
-        let prefix = if i == sel { "> " } else { "  " };
-        grid.text(0, MENU_ROW + i, prefix, fg, false);
-        grid.text(2, MENU_ROW + i, label, fg, false);
-    }
-
-    grid.text(0, MESSAGE_ROW, message, PALETTE.desc, false);
-    draw_chrome(grid, run, clock);
 }
 
 // Character class -> palette color (SPEC §5.1). Anomaly tells render amber.

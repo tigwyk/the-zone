@@ -168,47 +168,49 @@ pub(crate) fn build_inventory_grid(
     draw_chrome(grid, run, clock);
 }
 
-/// Uses or equips one item. Returns the message line.
-pub(crate) fn use_item(zone: &ZoneData, run: &mut RunState, index: usize) -> String {
+/// Uses or equips one item. Returns the message line, and whether anything actually
+/// happened - a medkit at full health costs no AP because it never left the pack.
+pub(crate) fn use_item(zone: &ZoneData, run: &mut RunState, index: usize) -> (String, bool) {
     let Some((id, _)) = run.items.get(index).cloned() else {
-        return String::new();
+        return (String::new(), false);
     };
     let item = zone.items[&id].clone();
     match item.kind {
         ItemKind::Heal(n) => {
             let healed = (run.max_hp - run.hp).min(n);
             if healed == 0 {
-                return "You are not hurt.".into();
+                return ("You are not hurt.".into(), false);
             }
             run.hp += healed;
             run.take_item(&id, 1);
-            format!("You use the {}. HP +{healed}.", item.name)
+            (format!("You use the {}. HP +{healed}.", item.name), true)
         }
         ItemKind::Antirad(n) => {
             if run.rads == 0 {
-                return "You are clean.".into();
+                return ("You are clean.".into(), false);
             }
             let cleared = run.rads.min(n);
             run.rads -= cleared;
             run.take_item(&id, 1);
-            format!("You use the {}. RAD -{cleared}.", item.name)
+            (format!("You use the {}. RAD -{cleared}.", item.name), true)
         }
-        ItemKind::Weapon(_) => {
+        ItemKind::Weapon { .. } => {
             let off = run.weapon.as_deref() == Some(id.as_str());
             run.weapon = if off { None } else { Some(id) };
-            format!("You {} the {}.", if off { "stow" } else { "ready" }, item.name)
+            (format!("You {} the {}.", if off { "stow" } else { "ready" }, item.name), true)
         }
         ItemKind::Armor(_) => {
             let off = run.armor.as_deref() == Some(id.as_str());
             run.armor = if off { None } else { Some(id) };
-            format!("You {} the {}.", if off { "take off" } else { "put on" }, item.name)
+            (format!("You {} the {}.", if off { "take off" } else { "put on" }, item.name), true)
         }
         // Artifacts work by being carried; there is nothing to press (GDD §6).
-        ItemKind::Artifact { rads, .. } => {
-            format!("The {} hums against your hip. {rads} rads an hour.", item.name)
-        }
-        ItemKind::Light => format!("The {} is on whenever you carry it.", item.name),
-        ItemKind::Misc => format!("The {} is not much use here.", item.name),
+        ItemKind::Artifact { rads, .. } => (
+            format!("The {} hums against your hip. {rads} rads an hour.", item.name),
+            false,
+        ),
+        ItemKind::Light => (format!("The {} is on whenever you carry it.", item.name), false),
+        ItemKind::Misc => (format!("The {} is not much use here.", item.name), false),
     }
 }
 
@@ -485,7 +487,8 @@ mod tests {
         let (zone, _, mut run) = fixture();
         run.hp = run.max_hp - 2;
         let i = run.items.iter().position(|(id, _)| id == "medkit").unwrap();
-        let msg = use_item(&zone, &mut run, i);
+        let (msg, acted) = use_item(&zone, &mut run, i);
+        assert!(acted);
         assert_eq!(run.hp, run.max_hp);
         assert!(msg.contains("HP +2"));
         assert!(!run.items.iter().any(|(id, _)| id == "medkit"));
