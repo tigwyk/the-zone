@@ -367,7 +367,7 @@ fn craft_input(
             let recipe = list[cursor.0.min(n - 1)];
             let here = act.area.0.clone();
             match craft_available(&act.zone, &act.run, recipe) {
-                Some(reason) => act.message.0 = format!("You cannot. {reason}."),
+                Some(reason) => act.message.0 = format!("You cannot: {reason}."),
                 None => {
                     act.message.0 = craft(recipe, &mut act.run, &act.zone, &mut act.rng);
                     // The bench costs time, and an emission does not wait for it.

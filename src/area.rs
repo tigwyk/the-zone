@@ -425,10 +425,15 @@ impl ZoneData {
             if let Some(affix) = &recipe.affix {
                 must(&self.affixes, affix, &whose, "bakes unknown affix");
             }
-            assert!(
-                recipe.output.is_some() ^ recipe.catalyst.is_some(),
-                "{whose} is neither (or both) a bench and a forge recipe"
-            );
+            let bench = recipe.output.is_some() && recipe.catalyst.is_none() && recipe.affix.is_none();
+            let forge = recipe.output.is_none() && recipe.catalyst.is_some() && recipe.affix.is_some();
+            assert!(bench || forge, "{whose} is not a valid bench or forge recipe");
+            if let Some(needed) = &recipe.catalyst {
+                assert!(recipe.affix.is_some(), "{whose} forge recipe '{needed}' is missing its affix");
+            }
+            if recipe.affix.is_some() {
+                assert!(recipe.catalyst.is_some(), "{whose} affix recipe is missing its catalyst");
+            }
         }
 
         // Everything the story files point at has to exist too (SPEC §5.3).
@@ -457,7 +462,7 @@ impl ZoneData {
             match &quest.goal {
                 crate::quest::Goal::Have(i) => must(&self.items, i, &whose, "wants unknown item"),
                 crate::quest::Goal::Reach(a) => must(&self.areas, a, &whose, "sends you to unknown area"),
-                crate::quest::Goal::Kill(e) => must(&self.enemies, e, &whose, "wants dead the unknown enemy"),
+                crate::quest::Goal::Kill(e) => must(&self.enemies, e, &whose, "wants the unknown enemy dead"),
             }
         }
         for (id, faction) in &self.factions {
