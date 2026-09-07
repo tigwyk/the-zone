@@ -26,6 +26,8 @@ src/run.rs         RunState, Rng, check(), price()                    (M2)
 src/screens.rs     modal screens (creation, inventory, trade) + chrome (M2)
 src/sim.rs         clock, radiation, emissions, anomaly fields, gates    (M3)
 src/combat.rs      AP turns, the enemy machine, the combat screen          (M4)
+src/craft.rs     the bench and the forge: recipes, checks, the screen (M11)
+src/liquid.rs    liquid kinds, puddles, pooling, the floor readout
 src/dialogue.rs    NPCs, menu-option dialogue, the dialogue screen        (M5)
 src/quest.rs       jobs, standing, the job board and journal screens      (M5)
 src/meta.rs        memorial, unlocks, suspend, endings, the save files    (M6)
@@ -52,14 +54,15 @@ Every screen in the game is a `build_grid`-style function that writes into the o
   was expected to be the first case and was not: one enemy at a time fits in a `Combat`
   resource. ECS entities still exist for rendering only.
 - **Bevy `States`** drive which input and build systems run:
-  `MainMenu, CharacterCreation, Area, Inventory, Trade, Map, Journal, Status, Dialogue,
-  Combat, GameOver, Ending`. `Area` is home; every other in-run state returns to it on
-  `Esc` unless the GDD says otherwise (Combat has no Esc).
+  `MainMenu, CharacterCreation, Area, Inventory, Trade, Crafting, Map, Journal, Status,
+  Dialogue, Combat, GameOver, Ending`. `Area` is home; every other in-run state returns
+  to it on `Esc` unless the GDD says otherwise (Combat has no Esc).
 - **`render_grid` runs only when `TileGrid` is changed** (`is_changed()`). Never
   rebuild the grid every frame. If you mutate resources, call the screen's build
   function once at the end of the input system.
-- **All randomness goes through one `Rng` resource** seeded at run start, so a run
-  can be replayed from its seed. No `rand::thread_rng()` in game logic.
+- **All randomness goes through one `Rng` resource** seeded at run start and carried
+  in the suspend file, so a suspended run picks up the same sequence it put down.
+  No `rand::thread_rng()` in game logic.
 - **All skill checks go through `check(skill, modifiers, &mut rng) -> Outcome`**
   (`Outcome { CritFail, Fail, Success, CritSuccess }`). Callers never roll d100
   themselves. `check_crit(.., crit_on, ..)` widens the crit window (an aimed shot
@@ -100,7 +103,7 @@ struct TileGrid { w: usize, cells: Vec<Glyph> }   // 120 × 33, row-major
   registered there, which is what keeps the play-through tests headless.
 - `bold` renders as brightness (`bold_color`), not a bold face. Do not add a font.
 - **Palette** is one `Palette` const with named colors: `dim, ground, pale, fire,
-  smoke, water, amber, cyan, secret, glitch, red, grey, desc, menu, menu_sel, status`.
+  smoke, water, amber, cyan, secret, glitch, red, blood, acid, grey, desc, menu, menu_sel, status`.
   `glitch` is presentation-only (the HUD-interference fringe); content never names it.
   Code and content reference names. No `Color::srgb(...)` literals outside the palette.
 - Default font only. **Art is ASCII 32–126.** The loader rejects anything else.
@@ -166,6 +169,7 @@ Zone(
 | `Say(String)` | M1 | set `MessageLine` |
 | `Rest` | M2 | 8 h, heal, clear rads, costs ₽ at camp |
 | `Trade(VendorId)` | M2 | enter Trade state |
+| `Craft` | M11 | enter Crafting state (the bench) |
 | `Talk(NpcId)` | M5 | enter Dialogue state |
 | `Jobs(FactionId)` | M5 | enter Jobs state (that faction's board) |
 | `Scan`, `ThrowBolt`, `PushThrough`, `TakeArtifact` | M3 | anomaly field verbs |
@@ -194,6 +198,9 @@ Items and vendors sit in the same file (SPEC §5.3 carves them out later):
 `Armor(i32)`
 (damage resistance), `Artifact(attr: usize, bonus: i32, rads: i32)` (carried: shifts one
 attribute, costs rads every hour), `Light` (cancels the night PER penalty), `Misc`.
+Using a `Heal` or `Antirad` item is a **Medicine check** (GDD §13): crit success doubles
+the printed amount, success gives it, fail gives half, crit fail spends the item for
+nothing and adds 10 rads. Healing caps at max HP and rads at 0, as ever.
 A vendor's optional `artifact_markup` (default 1.0) multiplies its own markup on
 artifacts only. Vendor `stock` is the starting shelf; the live shelf is
 the `VendorStock` resource, so trading does not mutate loaded data.
@@ -225,6 +232,15 @@ own table:
     },
 ```
 
+An area may name what is pooled on its floor, and a kill there spills blood on top of
+it. One kind pools into a single larger puddle rather than sitting as separate drops:
+the amount sets the size word, and the description section reads each kind out in its
+own colour (GDD §11). The kinds are `"water"`, `"blood"` and `"acid"`:
+
+```ron
+    liquids: [("water", 45)],
+```
+
 Menus have at most 5 entries; the combat menu is three (Attack, Aim, Flee), which is why
 using an item in a fight is the footer's Inventory (4 AP) rather than a fourth verb. A
 secret letter must not also be a menu key (menus have no letter keys, so this is
@@ -240,12 +256,39 @@ world. Beside it:
 | `items.ron` | `{ id: Item(name, base, kind) }` |
 | `vendors.ron` | `{ id: Vendor(name, faction, markup, artifact_markup?, stock) }` |
 | `enemies.ron` | `{ id: Enemy(...) }` |
-| `npcs.ron` | `{ id: Npc(name, faction, start, nodes) }`, dialogue included |
+| `npcs.ron` | `{ id: Npc(name, start, nodes) }`, dialogue included |
 | `quests.ron` | `{ id: Quest(name, faction, text, goal, rubles, rep) }` |
 | `factions.ron` | `{ id: Faction(name, rivals) }` |
 | `endings.ron` | `{ id: Ending(name, literal, corrupted) }` |
 | `lore.ron` | `{ id: Lore(title, text) }` |
 | `affixes.ron` | `{ id: Affix(name, slot, fits, effect, range, value) }` |
+| `recipes.ron` | `{ id: Recipe(...) }` and `{ id: Forge(...) }` (M11) |
+
+`recipes.ron` (M11) is one `Recipe` per row. A bench recipe carries `inputs` + `output`;
+a forge recipe carries a `catalyst` artifact + the `affix` it bakes into held gear:
+
+```ron
+"brew_antirad": Recipe(
+    name: "Brew Antirad",
+    inputs: [("dog_tail", 1), ("vodka", 1)],
+    output: Some(("antirad", 1)),
+    skill: Medicine,        // Repair | Medicine | Science — what the check rolls under
+    difficulty: 10,         // the check's modifier (easy +, hard −)
+    minutes: 60,            // the clock cost
+),
+"cook_whirligig": Recipe(
+    name: "Cook a Whirligig",
+    catalyst: Some("gravi"),             // an artifact; its family names the affix
+    affix: Some("of_the_whirligig"),     // baked into the held weapon/armour it fits
+    skill: Science,
+    difficulty: -10,
+    minutes: 120,
+),
+```
+
+The loader validates every input/output/catalyst item id, every affix id, and that
+each recipe is exactly one of bench (an `output`) or forge (a `catalyst` + `affix`),
+whose affix fits the held gear's `slot` and kind.
 
 Anomalies stay inline in the area that has one; backgrounds stay as consts in
 `run.rs`; dialogue nests inside its NPC. Split those out when they outgrow a screen,

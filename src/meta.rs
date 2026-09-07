@@ -11,9 +11,10 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::area::{VendorStock, ZoneData};
+use crate::liquid::Puddles;
 use crate::render::{TileGrid, PALETTE};
 use crate::run::{check, Outcome, Rng, RunState, BACKGROUNDS, LCK};
-use crate::screens::{draw_message, hint, title, wrap, PANEL_COL};
+use crate::screens::{draw_message, hint, row, title, wrap, PANEL_COL};
 use crate::sim::{FieldState, Fields, GameClock};
 
 const LIST_ROW: usize = 4;
@@ -167,6 +168,7 @@ pub(crate) struct Suspend {
     pub clock: GameClock,
     pub fields: HashMap<String, FieldState>,
     pub stock: HashMap<String, Vec<crate::loot::ItemStack>>,
+    pub puddles: HashMap<String, HashMap<String, u32>>,
     pub rng: Rng,
 }
 
@@ -177,6 +179,7 @@ pub(crate) fn suspend(
     clock: &GameClock,
     fields: &Fields,
     stock: &VendorStock,
+    puddles: &Puddles,
     rng: &Rng,
 ) -> bool {
     let save = Suspend {
@@ -185,6 +188,7 @@ pub(crate) fn suspend(
         clock: clock.clone(),
         fields: fields.0.clone(),
         stock: stock.0.clone(),
+        puddles: puddles.0.clone(),
         rng: rng.clone(),
     };
     match ron::ser::to_string_pretty(&save, default()) {
@@ -253,10 +257,8 @@ pub(crate) fn build_memorial_grid(
     // Newest first: the last one in is the one people are still talking about.
     let fallen: Vec<&Fallen> = meta.memorial.iter().rev().collect();
     for (i, f) in fallen.iter().take(14).enumerate() {
-        let fg = if i == sel { PALETTE.menu_sel } else { PALETTE.grey };
-        grid.text(0, LIST_ROW + i, if i == sel { "> " } else { "  " }, fg, false);
         let line = format!("{:<12}{:<10}{} days", f.name, f.background, f.days);
-        grid.text(2, LIST_ROW + i, &line, fg, false);
+        row(grid, 0, LIST_ROW + i, i == sel, PALETTE.grey, false, &line);
     }
 
     if let Some(f) = fallen.get(sel) {
@@ -346,7 +348,7 @@ mod tests {
             vec![crate::loot::ItemStack::plain(0, "bolt", 3)],
         )]));
 
-        assert!(suspend(&dir, &run, "quarry", &GameClock { next_emission: 7000 }, &fields, &stock, &rng));
+        assert!(suspend(&dir, &run, "quarry", &GameClock { next_emission: 7000 }, &fields, &stock, &Puddles::empty(), &rng));
         let back = resume(&dir).expect("the file was just written");
         assert_eq!(back.run.rubles, 4321);
         assert_eq!(back.area, "quarry");
@@ -370,6 +372,7 @@ mod tests {
             &GameClock::default(),
             &Fields::default(),
             &VendorStock(HashMap::new()),
+            &Puddles::empty(),
             &rng,
         );
         let mut meta = MetaProgress::default();

@@ -19,9 +19,6 @@ const OPTIONS_ROW: usize = 8;
 #[serde(rename = "Npc")]
 pub(crate) struct NpcData {
     pub name: String,
-    /// Whose side they are on; a quest they hand out moves this faction's rep.
-    #[allow(dead_code)] // read once NPCs hand out jobs directly (M6 story work)
-    pub faction: String,
     pub start: String,
     pub nodes: HashMap<String, Node>,
 }

@@ -44,6 +44,7 @@ Zone(
                 ("Read the log", SetFlag("read_the_log")),
                 ("The last page", Lore("the_hatch")),
                 ("Take the kit", Give("sawn_off", 1)),
+                ("The bench", Craft),
                 ("Return", Travel("camp")),
             ],
             secrets: {},
@@ -68,6 +69,7 @@ Zone(
             art: "swamp",
             shelter: false,
             encounter: Some("blind_dog"),
+            liquids: [("water", 45)],
             menu: [
                 ("Back to the road", Travel("road")),
                 ("The farm track", Travel("farm")),
@@ -85,6 +87,7 @@ Zone(
             art: "pipes",
             shelter: true,
             encounter: Some("bloodsucker"),
+            liquids: [("water", 12)],
             menu: [
                 ("Search the kit", Give("seva_suit", 1)),
                 ("Look", Lore("the_cordon")),
@@ -277,6 +280,7 @@ Zone(
             name: "The Low Ground",
             art: "acid_pools",
             shelter: false,
+            liquids: [("acid", 55)],
             anomaly: Some(Anomaly(
                 name: "Fruit Punch", danger: 40, dice: (3, 6),
                 artifact: "slime", beyond: "freedom_camp",

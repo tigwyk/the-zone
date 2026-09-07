@@ -116,7 +116,7 @@ pub(crate) struct AffixData {
 }
 
 impl AffixData {
-    fn suits(&self, kind: ItemKind) -> bool {
+    pub(crate) fn suits(&self, kind: ItemKind) -> bool {
         match (self.fits, kind) {
             (Fits::Any, ItemKind::Weapon { .. } | ItemKind::Armor(_)) => true,
             (Fits::Weapon, ItemKind::Weapon { .. }) => true,

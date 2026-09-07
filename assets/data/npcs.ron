@@ -4,7 +4,6 @@
 {
     "grisha": Npc(
         name: "Grisha",
-        faction: "loners",
         start: "hello",
         nodes: {
             "hello": Node(
@@ -46,7 +45,6 @@
     ),
     "osip": Npc(
         name: "Quartermaster Osip",
-        faction: "duty",
         start: "hello",
         nodes: {
             "hello": Node(
@@ -84,7 +82,6 @@
     ),
     "sidorovich": Npc(
         name: "Sidorovich",
-        faction: "loners",
         start: "hello",
         nodes: {
             "hello": Node(
@@ -115,7 +112,6 @@
     ),
     "yerin": Npc(
         name: "Doctor Yerin",
-        faction: "loners",
         start: "hello",
         nodes: {
             "hello": Node(
@@ -137,7 +133,6 @@
     ),
     "kolya": Npc(
         name: "Kolya",
-        faction: "freedom",
         start: "hello",
         nodes: {
             "hello": Node(
@@ -170,7 +165,6 @@
     ),
     "kuzma": Npc(
         name: "Kuzma",
-        faction: "bandits",
         start: "hello",
         nodes: {
             "hello": Node(
@@ -208,7 +202,6 @@
     ),
     "professor": Npc(
         name: "Professor Ilyin",
-        faction: "ecologists",
         start: "hello",
         nodes: {
             "hello": Node(
@@ -241,7 +234,6 @@
     ),
     "hermit": Npc(
         name: "The Hermit",
-        faction: "mercs",
         start: "hello",
         nodes: {
             "hello": Node(
@@ -282,7 +274,6 @@
     ),
     "voice": Npc(
         name: "A Voice Under the Antenna",
-        faction: "monolith",
         start: "hello",
         nodes: {
             "hello": Node(
@@ -314,7 +305,6 @@
     // list is built from the run by the same requirements every other line uses.
     "room": Npc(
         name: "The Room",
-        faction: "monolith",
         start: "light",
         nodes: {
             "light": Node(
