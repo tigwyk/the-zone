@@ -9,7 +9,7 @@ use serde::Deserialize;
 
 use crate::dialogue::NpcData;
 use crate::liquid::{draw_liquids, Liquid, Puddles};
-use crate::loot::{AffixData, ItemStack};
+use crate::loot::{AffixData, Effect, Fits, ItemStack};
 use crate::meta::EndingData;
 use crate::quest::QuestData;
 use crate::render::{Glyph, TileGrid, GRID_W, PALETTE};
@@ -162,13 +162,44 @@ pub(crate) struct ItemData {
     pub kind: ItemKind,
 }
 
+/// What a gun eats. An enum rather than an id, so `ItemKind` stays `Copy` and the
+/// compiler validates it instead of the loader (same call as `Skill`).
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Caliber {
+    Pistol,
+    Rifle,
+    Shell,
+}
+
 #[derive(Deserialize, Clone, Copy, PartialEq)]
 pub(crate) enum ItemKind {
     Heal(i32),
     Antirad(i32),
-    /// Damage dice NdS, and the skill that swings or fires it (GDD §8).
-    Weapon { dice: (u32, u32), skill: Skill },
+    /// Damage dice NdS, and the skill that swings or fires it (GDD §8). A gun also
+    /// names what it eats and how much of it it holds; melee weapons name neither.
+    Weapon {
+        dice: (u32, u32),
+        skill: Skill,
+        #[serde(default)]
+        ammo: Option<Caliber>,
+        #[serde(default)]
+        mag: u32,
+    },
     Armor(i32),
+    /// Fitted to a weapon or a suit: one effect at a fixed magnitude. The Zone rolls
+    /// affixes; a workshop does not (GUNS §1).
+    Mod {
+        effect: Effect,
+        value: i32,
+        fits: Fits,
+    },
+    /// One round. `pierce` comes off the target's armour before it soaks anything.
+    Ammo {
+        caliber: Caliber,
+        damage: i32,
+        to_hit: i32,
+        pierce: i32,
+    },
     /// Carried: +bonus to one attribute, +rads every hour (GDD §6).
     Artifact { attr: usize, bonus: i32, rads: i32 },
     /// Kills the night penalty on PER checks (GDD §5).
@@ -351,6 +382,20 @@ fn must<V>(table: &HashMap<String, V>, id: &str, whose: &str, verb: &str) {
 }
 
 impl ZoneData {
+    /// Every round that fits this caliber, cheapest first, so "whatever you have"
+    /// spends the surplus before the armour-piercing.
+    pub fn ammo_of(&self, caliber: Caliber) -> impl Iterator<Item = &String> {
+        let mut ids: Vec<&String> = self
+            .items
+            .iter()
+            .filter(|(_, i)| matches!(i.kind, ItemKind::Ammo { caliber: c, .. } if c == caliber))
+            .map(|(id, _)| id)
+            .collect();
+        // A HashMap has no order and a seeded run needs one; price, then id.
+        ids.sort_by_key(|id| (self.items[*id].base, *id));
+        ids.into_iter()
+    }
+
     /// Every id an action or a vendor names must exist (SPEC §5.3).
     fn validate_ids(&self) {
         let check = |action: &Action, whose: &str| match action {
@@ -434,6 +479,18 @@ impl ZoneData {
             if recipe.affix.is_some() {
                 assert!(recipe.catalyst.is_some(), "{whose} affix recipe is missing its catalyst");
             }
+        }
+
+        // A gun nobody can feed is content written with nowhere to go (SPEC §5).
+        for (id, item) in &self.items {
+            let ItemKind::Weapon { ammo: Some(caliber), mag, .. } = item.kind else {
+                continue;
+            };
+            assert!(mag > 0, "items.ron: '{id}' takes ammunition but holds none");
+            assert!(
+                self.ammo_of(caliber).next().is_some(),
+                "items.ron: '{id}' eats {caliber:?} and nothing loads it"
+            );
         }
 
         // Everything the story files point at has to exist too (SPEC §5.3).
@@ -794,6 +851,27 @@ mod tests {
             .collect();
         let unused: Vec<&String> = zone.enemies.keys().filter(|id| !homes.contains(id.as_str())).collect();
         assert!(unused.is_empty(), "enemies with nowhere to be: {unused:?}");
+    }
+
+    #[test]
+    fn every_gun_has_something_that_loads_it() {
+        // The cross-file check from SPEC §5, the same shape as the dangling-id ones:
+        // a caliber nobody sells is a gun nobody can fire (GUNS §4).
+        let zone = load_zone(Path::new("assets/data"));
+        let mut guns = 0;
+        for item in zone.items.values() {
+            if let ItemKind::Weapon { ammo: Some(caliber), mag, .. } = item.kind {
+                guns += 1;
+                assert!(mag > 0, "{} holds nothing", item.name);
+                assert!(zone.ammo_of(caliber).next().is_some(), "{} eats nothing", item.name);
+            }
+        }
+        assert_eq!(guns, 6, "six guns take ammunition; the blades do not");
+        // Cheapest first, so "whatever fits" spends the surplus before the good stuff.
+        let pistol: Vec<&String> = zone.ammo_of(Caliber::Pistol).collect();
+        assert_eq!(pistol.len(), 3);
+        assert_eq!(pistol[0], "pistol_surplus");
+        assert!(zone.items[pistol[0]].base < zone.items[pistol[2]].base);
     }
 
     #[test]

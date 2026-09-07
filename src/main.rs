@@ -31,7 +31,7 @@ use render::{render_grid, spawn_scanlines, toggle_scanlines, Glitch, TileGrid};
 use run::{Rng, RunState, BACKGROUNDS, REST_COST, REST_RADS, SKILL_NAMES, TAG_COUNT};
 use screens::{
     build_creation_grid, build_gameover_grid, build_inventory_grid, build_map_grid,
-    build_trade_grid, known_areas, trade_list, trade_one, use_item,
+    build_trade_grid, known_areas, pull_mod, trade_list, trade_one, use_item,
 };
 use sim::{
     action_minutes, advance, check_death, push_through, reveal_secrets, scan, take_artifact,
@@ -747,7 +747,7 @@ fn combat_input(
         return;
     }
 
-    let menu = combat::menu(&act.combat);
+    let menu = combat::menu(&act.combat, &act.run, &act.zone);
     let n = menu.len();
     let mut changed = arrows(&keys, &mut act.combat.sel, n);
 
@@ -778,7 +778,7 @@ fn combat_input(
         return;
     }
     // The menu shrinks as the AP runs low; keep the cursor on something real.
-    let n = combat::menu(&act.combat).len();
+    let n = combat::menu(&act.combat, &act.run, &act.zone).len();
     act.combat.sel = act.combat.sel.min(n.saturating_sub(1));
     build_combat_grid(
         &mut grid,
@@ -1035,6 +1035,13 @@ fn inventory_input(
     let n = act.run.items.len();
     let mut changed = arrows(&keys, &mut cursor.0, n);
     if n > 0 {
+        // GUNS §1: unscrewing the last thing you screwed on, at a Repair check.
+        // Never in a fight - a fight is not a workbench.
+        if keys.just_pressed(KeyCode::Backspace) && !act.combat.active {
+            let (msg, _) = pull_mod(&act.zone, &mut act.run, cursor.0, &mut act.rng);
+            act.message.0 = msg;
+            changed = true;
+        }
         if keys.just_pressed(KeyCode::Enter) {
             // GDD §8: rummaging in a fight costs 4 AP, and may hand the turn over.
             if act.combat.active && act.combat.ap < combat::AP_ITEM {
@@ -1170,6 +1177,7 @@ fn pressed_letter(keys: &ButtonInput<KeyCode>) -> Option<char> {
 #[cfg(test)]
 mod playthrough {
     use super::*;
+    use crate::area::ItemKind;
     use crate::render::{GRID_H, GRID_W};
     use crate::run::Skill;
     use bevy::state::app::StatesPlugin;
@@ -1282,13 +1290,22 @@ mod playthrough {
 
         /// Hands the stalker a weapon they can actually use, and the skill to use it.
         fn arm_with(&mut self, item: &str) -> &mut Self {
-            let mut run = self.run_mut();
-            run.add_item(item, 1);
-            run.weapon = run.items.iter().find(|s| s.id == item).map(|s| s.uid);
-            run.add_item("vest", 1);
-            run.armor = run.items.iter().find(|s| s.id == "vest").map(|s| s.uid);
-            run.skills[Skill::SmallGuns.index()] = 90;
-            run.skills[Skill::Melee.index()] = 90;
+            // A stalker who buys a gun buys rounds for it, so the harness does too
+            // (GUNS §7.0). Fed through the game’s own reload, never by hand.
+            self.app.world_mut().resource_scope(|world, mut run: Mut<RunState>| {
+                let zone = world.resource::<ZoneData>();
+                run.add_item(item, 1);
+                run.weapon = run.items.iter().find(|s| s.id == item).map(|s| s.uid);
+                run.add_item("vest", 1);
+                run.armor = run.items.iter().find(|s| s.id == "vest").map(|s| s.uid);
+                run.skills[Skill::SmallGuns.index()] = 90;
+                run.skills[Skill::Melee.index()] = 90;
+                if let ItemKind::Weapon { ammo: Some(caliber), .. } = zone.items[item].kind {
+                    let round = zone.ammo_of(caliber).next().expect("a round that fits").clone();
+                    run.add_item(&round, 40);
+                    combat::reload(&mut run, zone);
+                }
+            });
             self
         }
 
@@ -1305,11 +1322,23 @@ mod playthrough {
             self.choose("Push Through")
         }
 
+        /// Puts the cursor on a list row without confirming it - Enter on the thing
+        /// in your hands would stow it again.
+        fn highlight(&mut self, name: &str) -> &mut Self {
+            for _ in 0..26 {
+                if (4..22).any(|y| self.row(y).starts_with(&format!("> {name}"))) {
+                    return self;
+                }
+                self.press(KeyCode::ArrowDown);
+            }
+            panic!("no row `{name}` on:\n{}", self.screen());
+        }
+
         /// Picks a row out of any list screen - inventory, board, map, dialogue -
         /// by the text it starts with, and confirms it.
         fn choose_listed(&mut self, name: &str) -> &mut Self {
-            for _ in 0..14 {
-                if (4..18).any(|y| self.row(y).starts_with(&format!("> {name}"))) {
+            for _ in 0..26 {
+                if (4..22).any(|y| self.row(y).starts_with(&format!("> {name}"))) {
                     return self.press(KeyCode::Enter);
                 }
                 self.press(KeyCode::ArrowDown);
@@ -1476,9 +1505,15 @@ mod playthrough {
         sim.choose("Attack");
         assert_eq!(sim.combat().ap, ap - combat::AP_ATTACK);
 
+        // Two shots leave a single point, which is not enough to swing again but is
+        // enough to top the magazine up: a good shot reloads for 1 AP (GUNS §3).
+        sim.choose("Attack");
+        assert_eq!(sim.combat().ap, 1);
+        sim.assert_shows("Reload (1 AP)");
+
         // Spending the last of it hands the turn over, and the Flesh bites straight
         // away - there is no approach to burn its AP on.
-        sim.choose("Attack");
+        sim.choose("Reload");
         assert_eq!(sim.combat().ap, ap, "a fresh turn comes back");
 
         // Rummaging mid-fight is the footer's Inventory, and it is not free.
@@ -1588,13 +1623,11 @@ mod playthrough {
             let mut run = sim.run_mut();
             let uid = run.next_uid();
             run.add_stack(ItemStack {
-                uid,
-                id: "shotgun".into(),
-                count: 1,
                 affixes: vec![
                     Roll { affix: "heavy".into(), magnitude: 3 },
                     Roll { affix: "of_the_steady_hand".into(), magnitude: 10 },
                 ],
+                ..ItemStack::plain(uid, "shotgun", 1)
             });
             run.weapon = Some(uid);
         }
@@ -1637,13 +1670,11 @@ mod playthrough {
             let mut run = sim.run_mut();
             let uid = run.next_uid();
             run.add_stack(ItemStack {
-                uid,
-                id: "vest".into(),
-                count: 1,
                 affixes: vec![
                     Roll { affix: "sealed".into(), magnitude: -6 },
                     Roll { affix: "clean".into(), magnitude: 2 },
                 ],
+                ..ItemStack::plain(uid, "vest", 1)
             });
             run.armor = Some(uid);
             // An artifact that would otherwise cost four rads an hour.
@@ -1883,6 +1914,68 @@ mod playthrough {
 
         sim.press(KeyCode::Escape);
         assert_eq!(sim.state(), GameState::Area);
+    }
+
+    /// GUNS §7.5: buy a gun and rounds for it, fit a sight, and take it to the rim.
+    /// Everything asserted here is what the player can see on the grid.
+    #[test]
+    fn a_gun_is_bought_fed_fitted_and_run_dry() {
+        let mut sim = Sim::new();
+        sim.roll_a_stalker();
+
+        // Off the trader's shelf: the pistol, and ten rounds in one press.
+        sim.run_mut().rubles = 4000; // a pistol is 1238 at Barter 25
+        sim.choose("Talk to Sidorovich");
+        sim.choose_listed("Show me the shelf.");
+        assert_eq!(sim.state(), GameState::Trade);
+        sim.choose_listed("PMm Pistol");
+        sim.choose_listed("9mm Ball");
+        sim.assert_shows("You buy 10 of the 9mm Ball");
+        assert_eq!(sim.run().count_of("pistol_round"), 10);
+        sim.press(KeyCode::Escape);
+
+        // Osip sells the sight; this stalker already has one in the pack.
+        sim.run_mut().add_item("scope", 1);
+
+        // Ready the pistol, feed it, and fit the sight to it - all through the pack.
+        sim.press(KeyCode::Tab);
+        assert_eq!(sim.state(), GameState::Inventory);
+        sim.choose_listed("PMm Pistol");
+        sim.assert_shows("You ready the PMm Pistol");
+        sim.choose_listed("9mm Ball");
+        sim.assert_shows("You feed it 8 of the 9mm Ball");
+        sim.choose_listed("Telescopic Sight");
+        sim.assert_shows("You fit the Telescopic Sight to the PMm Pistol");
+
+        // The pack reads out what is on it and what is in it.
+        sim.highlight("PMm Pistol");
+        sim.assert_shows("+10 to hit  (Telescopic Sight)");
+        sim.assert_shows("Loaded  8/8  9mm Ball");
+        sim.press(KeyCode::Tab);
+
+        // Take it to the Flesh on the rim. The fight says what is left in it.
+        sim.run_mut().skills[Skill::SmallGuns.index()] = 30; // misses, so it runs dry
+        sim.walk_to_the_rim();
+        assert_eq!(sim.state(), GameState::Combat);
+        sim.assert_shows("AMMO 8/8");
+
+        // Eight shots later there is nothing to fire and the menu says so.
+        for _ in 0..40 {
+            if sim.state() != GameState::Combat || !sim.shows("Attack (") {
+                break;
+            }
+            sim.choose("Attack");
+        }
+        if sim.state() == GameState::Combat {
+            sim.assert_shows("AMMO 0/8");
+            assert!(!sim.shows("Attack ("), "an empty gun offers no attack");
+            sim.assert_shows("Reload (2 AP)");
+
+            // Feeding it puts the attack back on the menu.
+            sim.choose("Reload");
+            sim.assert_shows("AMMO 2/8");
+            sim.assert_shows("Attack (3 AP)");
+        }
     }
 
     #[test]

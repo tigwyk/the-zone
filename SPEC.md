@@ -194,13 +194,23 @@ Items and vendors sit in the same file (SPEC §5.3 carves them out later):
     },
 ```
 
-`ItemKind`: `Heal(i32)`, `Antirad(i32)`, `Weapon(dice: (u32, u32), skill: Skill)`,
+`ItemKind`: `Heal(i32)`, `Antirad(i32)`,
+`Weapon(dice: (u32, u32), skill: Skill, ammo: Option<Caliber>, mag: u32)`,
 `Armor(i32)`
-(damage resistance), `Artifact(attr: usize, bonus: i32, rads: i32)` (carried: shifts one
+(damage resistance), `Mod(effect: Effect, value: i32, fits: Fits)` (fitted to a weapon
+or a suit at a fixed magnitude), `Ammo(caliber: Caliber, damage: i32, to_hit: i32,
+pierce: i32)` (one round; `pierce` comes off the target's armour first),
+`Artifact(attr: usize, bonus: i32, rads: i32)` (carried: shifts one
 attribute, costs rads every hour), `Light` (cancels the night PER penalty), `Misc`.
 Using a `Heal` or `Antirad` item is a **Medicine check** (GDD §13): crit success doubles
 the printed amount, success gives it, fail gives half, crit fail spends the item for
 nothing and adds 10 rads. Healing caps at max HP and rads at 0, as ever.
+
+`Caliber` is `Pistol | Rifle | Shell` — an enum, not an id, so `ItemKind` stays `Copy`
+and the compiler validates it instead of the loader. A weapon's `ammo` and `mag`
+default, so the melee rows carry neither. The loader asserts that every caliber a
+weapon names has at least one `Ammo` row, the same way it asserts every other
+cross-file id.
 A vendor's optional `artifact_markup` (default 1.0) multiplies its own markup on
 artifacts only. Vendor `stock` is the starting shelf; the live shelf is
 the `VendorStock` resource, so trading does not mutate loaded data.
@@ -327,6 +337,19 @@ pistol.
   Do not add an effect without a hook, and do not read one in two places.
 - **Affixes apply when equipped, not when carried** (`sim::worn_bonus`). Artifacts are
   the opposite: they work from the pack and charge rads for it.
+- **Mods are the same machinery from the other side.** `ItemStack.mods` is a list of
+  item ids, `loot::bonus` sums them alongside the rolls, and every existing reader of
+  `bonus` therefore picks them up for free. A mod's magnitude comes from its row: the
+  Zone rolls, a workshop does not. `MOD_SLOTS` of them fit, no id twice, and
+  `Rarity::of` never sees them — a scoped plain pistol is still plain.
+- **`is_plain()` is the rarity question; `is_stackable()` is the merging one.** A gun
+  somebody has fitted or loaded is one particular gun and must not merge into a bare
+  one, so `add_stack` and `take_item` key off `is_stackable`. Getting these two
+  confused is how two loaded pistols become a stack of two.
+- **The magazine lives on the stack** (`loaded`, `loaded_with`), because two pistols
+  are no longer the same pistol. `combat::reload` is the only thing that writes it —
+  the inventory, the combat verb and the bench all go through it, so leftovers of
+  another type always find their way back to the pack.
 - Rarity is rolled out of a thousand and pushed by depth and luck, capped so the top
   band stays rare. An area carries a `tier`, an enemy carries a `tier`, and both feed
   the same roll.
@@ -343,6 +366,7 @@ build.
 | Key | Owner |
 |---|---|
 | Up, Down, Enter | current menu |
+| Backspace | `Inventory` only: pull the last mod off the highlighted item |
 | Esc | close overlay; on `Area` does nothing |
 | A–Z | `Area` state only: look up the area's secrets table |
 | Tab | Inventory toggle |

@@ -11,6 +11,8 @@
             ("bolt", 20), ("knife", 1), ("flashlight", 1), ("headlamp", 1),
             ("pistol", 1), ("jacket", 1), ("vest", 1), ("lockpicks", 1),
             ("detector", 1), ("toolkit", 1),
+            // The cheap end of the ammunition (GUNS §2); Osip stocks the rest.
+            ("pistol_surplus", 60), ("pistol_round", 40), ("shell_birdshot", 40),
         ],
     ),
     "barkeep": Vendor(
@@ -39,6 +41,10 @@
             ("pistol", 2), ("revolver", 1), ("sawn_off", 2), ("shotgun", 1),
             ("rifle", 1), ("sniper", 1), ("machete", 1), ("axe", 1),
             ("vest", 2), ("duty_armour", 1), ("trench_coat", 2),
+            ("pistol_round", 60), ("pistol_ap", 30), ("shell_buck", 40), ("shell_slug", 20),
+            ("rifle_surplus", 60), ("rifle_round", 60), ("rifle_ap", 30),
+            ("grip", 2), ("laser", 1), ("scope", 1), ("bayonet", 2),
+            ("trigger", 1), ("mag_well", 2), ("muzzle", 1), ("plate", 1), ("liner", 1),
         ],
     ),
 }

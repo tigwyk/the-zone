@@ -3,7 +3,7 @@
 {
     "bandit": Enemy(
         name: "Bandit", hp: 26, tier: 1, ap: 8, skill: 40, dice: (2, 6), armor: 2,
-        flees: true, loot: [("sawn_off", 1), ("bandage", 1)],
+        flees: true, loot: [("sawn_off", 1), ("bandage", 1), ("shell_buck", 4)],
     ),
     "blind_dog": Enemy(
         name: "Blind Dog", hp: 12, tier: 0, ap: 10, skill: 35, dice: (1, 6), armor: 0,
@@ -19,14 +19,14 @@
     ),
     "bloodsucker": Enemy(
         name: "Bloodsucker", hp: 55, tier: 4, ap: 9, skill: 60, dice: (3, 6), armor: 3,
-        ambush: true, loot: [("tentacle", 1), ("army_medkit", 1)],
+        ambush: true, loot: [("tentacle", 1), ("army_medkit", 1), ("laser", 1)],
     ),
     "controller": Enemy(
         name: "Controller", hp: 48, tier: 5, ap: 7, skill: 65, dice: (2, 8), armor: 2,
-        mind: true, loot: [("controller_brain", 1)],
+        mind: true, loot: [("controller_brain", 1), ("trigger", 1)],
     ),
     "pseudogiant": Enemy(
         name: "Pseudogiant", hp: 120, tier: 7, ap: 8, skill: 55, dice: (4, 8), armor: 6,
-        loot: [("giant_heart", 1), ("exo_frame", 1)],
+        loot: [("giant_heart", 1), ("exo_frame", 1), ("plate", 1)],
     ),
 }

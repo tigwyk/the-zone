@@ -7,9 +7,9 @@
 //! Everything here is deterministic from a seed, so a number in a report can be
 //! reproduced exactly.
 
-use crate::area::{load_zone, ZoneData};
+use crate::area::{load_zone, Caliber, ItemKind, ZoneData};
 use crate::combat::{self, Combat, Verb};
-use crate::loot::{ItemStack, Roll};
+use crate::loot::{self, Effect, ItemStack, Roll};
 use crate::run::{Rng, RunState, Skill};
 use std::path::Path;
 
@@ -24,6 +24,8 @@ pub(crate) enum Policy {
     /// Swing, but break off once it is clearly going badly. This is what a player
     /// actually does, and without it a bench overstates how lethal a thing is.
     Cautious,
+    /// Never feed the gun. The control for what a reload is worth (GUNS §7).
+    Dry,
 }
 
 /// Where a cautious stalker decides it is not their day.
@@ -39,6 +41,14 @@ pub(crate) struct Loadout {
     pub policy: Policy,
     /// Attribute overrides, by index. Left alone, everything is the starting 5.
     pub attrs: Vec<(usize, i32)>,
+    /// Mods fitted to the weapon, by item id.
+    pub mods: Vec<String>,
+    /// The rounds carried, and how many. Left alone, a gun arrives with a full
+    /// magazine and a box of the caliber’s ball ammunition, because a player who
+    /// buys a gun buys ammunition with it (GUNS §7.0). A box rather than a couple of
+    /// magazines, because two spares of a sawn-off is six shells and the bench
+    /// measured that as the sawn-off losing to a Flesh it is meant to beat.
+    pub ammo: Option<(String, u32)>,
 }
 
 impl Loadout {
@@ -50,6 +60,8 @@ impl Loadout {
             skill: 60,
             policy: Policy::Fast,
             attrs: Vec::new(),
+            mods: Vec::new(),
+            ammo: None,
         }
     }
 
@@ -79,9 +91,21 @@ impl Loadout {
         self
     }
 
+    /// Mods fitted to the weapon, by item id, in order.
+    pub fn mods(mut self, ids: &[&str]) -> Self {
+        self.mods = ids.iter().map(|id| id.to_string()).collect();
+        self
+    }
+
+    /// A particular round, and how many are carried. `.ammo(id, 0)` is the dry gun.
+    pub fn ammo(mut self, id: &str, rounds: u32) -> Self {
+        self.ammo = Some((id.to_string(), rounds));
+        self
+    }
+
     /// A fresh stalker for one trial. Fresh every time, because `check_skill` lets a
     /// skill climb as it is used and that would drift a long run of trials.
-    fn build(&self, rng: &mut Rng) -> RunState {
+    fn build(&self, zone: &ZoneData, rng: &mut Rng) -> RunState {
         let mut run = RunState::roll(0, &[0, 2, 3], rng);
         for &(index, value) in &self.attrs {
             run.attrs[index] = value;
@@ -93,16 +117,75 @@ impl Loadout {
         }
         if let Some((id, affixes)) = &self.weapon {
             let uid = run.next_uid();
-            run.add_stack(ItemStack { uid, id: id.clone(), count: 1, affixes: affixes.clone() });
-            run.weapon = Some(equipped(&run, id, affixes.is_empty(), uid));
+            run.add_stack(ItemStack {
+                affixes: affixes.clone(),
+                mods: self.mods.clone(),
+                ..ItemStack::plain(uid, id, 1)
+            });
+            let plain = affixes.is_empty() && self.mods.is_empty();
+            run.weapon = Some(equipped(&run, id, plain, uid));
+            self.load(&mut run, zone);
         }
         if let Some((id, affixes)) = &self.armor {
             let uid = run.next_uid();
-            run.add_stack(ItemStack { uid, id: id.clone(), count: 1, affixes: affixes.clone() });
+            run.add_stack(ItemStack {
+                affixes: affixes.clone(),
+                ..ItemStack::plain(uid, id, 1)
+            });
             run.armor = Some(equipped(&run, id, affixes.is_empty(), uid));
         }
         run
     }
+
+    /// Puts rounds in the pack and fills the magazine from it, through the same
+    /// `combat::reload` the player presses - never by writing the magazine by hand.
+    fn load(&self, run: &mut RunState, zone: &ZoneData) {
+        let uid = run.weapon.expect("a weapon was just equipped");
+        let stack = run.stack(uid).expect("just added");
+        let ItemKind::Weapon { ammo: Some(caliber), mag, .. } = zone.items[&stack.id].kind else {
+            return;
+        };
+        let capacity = (mag as i32 + loot::bonus(stack, zone, Effect::Mag)).max(1) as u32;
+        let (id, rounds) = match &self.ammo {
+            Some((id, rounds)) => (id.clone(), *rounds),
+            // A magazine, and a box of the ordinary stuff behind it.
+            None => (ball(caliber).to_string(), capacity + BOX),
+        };
+        if rounds == 0 {
+            return;
+        }
+        run.add_item(&id, rounds);
+        run.stack_mut(uid).expect("just added").loaded_with = Some(id);
+        combat::reload(run, zone);
+    }
+}
+
+/// What a stalker carries spare: three lots off the shelf (GUNS §2).
+const BOX: u32 = 30;
+
+/// The ordinary round for a caliber - what a stalker buys without thinking about it.
+fn ball(caliber: Caliber) -> &'static str {
+    match caliber {
+        Caliber::Pistol => "pistol_round",
+        Caliber::Rifle => "rifle_round",
+        Caliber::Shell => "shell_buck",
+    }
+}
+
+/// What the ammunition on this stalker is worth, magazine included. Read before and
+/// after a fight, the difference is what the fight cost in rubles (GUNS §7.1).
+fn ammo_rubles(run: &RunState, zone: &ZoneData) -> u32 {
+    let price = |id: &String, n: u32| match zone.items.get(id) {
+        Some(item) if matches!(item.kind, ItemKind::Ammo { .. }) => item.base * n,
+        _ => 0,
+    };
+    let carried: u32 = run.items.iter().map(|s| price(&s.id, s.count)).sum();
+    let chambered: u32 = run
+        .items
+        .iter()
+        .filter_map(|s| s.loaded_with.as_ref().map(|id| price(id, s.loaded)))
+        .sum();
+    carried + chambered
 }
 
 /// After `add_stack`, the stack actually in hand: a plain one has merged into the
@@ -137,6 +220,10 @@ struct Trial {
     rounds: u32,
     hp_left: i32,
     max_hp: i32,
+    /// Shots fired, magazines fed, and what the ammunition cost in rubles.
+    shots: u32,
+    reloads: u32,
+    spent: u32,
 }
 
 /// No fight should take this long; if one does, something is wrong with the policy
@@ -149,16 +236,23 @@ fn one_fight(
     zone: &ZoneData,
     rng: &mut Rng,
 ) -> Trial {
-    let mut run = loadout.build(rng);
+    let mut run = loadout.build(zone, rng);
     let max_hp = run.max_hp;
+    let carried = ammo_rubles(&run, zone);
     let mut combat = Combat::default();
     combat::start(enemy_id, &mut combat, &mut run, zone, rng);
 
+    let (mut shots, mut reloads) = (0, 0);
     let mut rounds = 0;
     while combat.active && run.hp > 0 && rounds < ROUND_CAP {
-        let menu = combat::menu(&combat);
+        let menu = combat::menu(&combat, &run, zone);
         let hurt = run.hp as f32 / max_hp as f32;
         let verb = choose(&menu, loadout.policy, hurt);
+        match verb {
+            Verb::Attack | Verb::Aimed => shots += 1,
+            Verb::Reload => reloads += 1,
+            Verb::Flee => {}
+        }
         let before = combat.ap;
         combat::act(verb, &mut combat, &mut run, zone, rng);
         // Every verb costs AP, so the pool can only fail to go down if `end_turn`
@@ -177,11 +271,20 @@ fn one_fight(
     } else {
         End::Escaped // one of you broke off, or the cap ran out
     };
-    Trial { end, rounds, hp_left: run.hp.max(0), max_hp }
+    Trial {
+        end,
+        rounds,
+        hp_left: run.hp.max(0),
+        max_hp,
+        shots,
+        reloads,
+        spent: carried.saturating_sub(ammo_rubles(&run, zone)),
+    }
 }
 
-/// Aim when the policy asks and the AP allows, otherwise swing, otherwise run.
-/// Only `Cautious` runs; the others stay in so a weapon can be measured to the end.
+/// Aim when the policy asks and the AP allows, otherwise swing, feed it when it is
+/// empty, otherwise run. Only `Cautious` runs early; the others stay in so a weapon
+/// can be measured to the end, and `Dry` never reloads on purpose (GUNS §7.1).
 fn choose(menu: &[(String, Verb)], policy: Policy, hurt: f32) -> Verb {
     let has = |v: Verb| menu.iter().any(|(_, m)| *m == v);
     if policy == Policy::Cautious && hurt < BREAK_OFF_AT && has(Verb::Flee) {
@@ -192,6 +295,10 @@ fn choose(menu: &[(String, Verb)], policy: Policy, hurt: f32) -> Verb {
     }
     if has(Verb::Attack) {
         return Verb::Attack;
+    }
+    // Nothing to shoot with: feed it, unless the point of the trial is not to.
+    if policy != Policy::Dry && has(Verb::Reload) {
+        return Verb::Reload;
     }
     Verb::Flee
 }
@@ -205,11 +312,24 @@ pub(crate) struct Summary {
     pub rounds: f32,
     /// Health left, as a fraction of the maximum, over the fights that were won.
     pub hp_left: f32,
+    /// Shots, reloads and rubles of ammunition, per fight.
+    pub shots: f32,
+    pub reloads: f32,
+    pub spent: f32,
 }
 
 impl Summary {
     pub fn win_rate(&self) -> f32 {
         self.killed as f32 / self.trials as f32
+    }
+
+    /// What the ammunition cost per kill. The only way to see whether the sink is a
+    /// decision or a tax (GUNS §7.2). Nothing killed is nothing earned, not free.
+    pub fn ru_per_kill(&self) -> f32 {
+        if self.killed == 0 {
+            return f32::INFINITY;
+        }
+        self.spent * self.trials as f32 / self.killed as f32
     }
 }
 
@@ -224,9 +344,13 @@ pub(crate) fn simulate(
     let mut out = Summary { trials, ..Default::default() };
     let mut rounds = 0u64;
     let mut hp_fraction = 0.0f32;
+    let (mut shots, mut reloads, mut spent) = (0u64, 0u64, 0u64);
     for _ in 0..trials {
         let trial = one_fight(loadout, enemy_id, zone, &mut rng);
         rounds += trial.rounds as u64;
+        shots += trial.shots as u64;
+        reloads += trial.reloads as u64;
+        spent += trial.spent as u64;
         match trial.end {
             End::Killed => {
                 out.killed += 1;
@@ -238,6 +362,9 @@ pub(crate) fn simulate(
     }
     out.rounds = rounds as f32 / trials as f32;
     out.hp_left = if out.killed > 0 { hp_fraction / out.killed as f32 } else { 0.0 };
+    out.shots = shots as f32 / trials as f32;
+    out.reloads = reloads as f32 / trials as f32;
+    out.spent = spent as f32 / trials as f32;
     out
 }
 
@@ -246,20 +373,23 @@ pub(crate) fn report(title: &str, enemy_id: &str, loadouts: &[Loadout], trials: 
     let zone = load_zone(Path::new("assets/data"));
     println!("\n{title}  ({trials} fights each, vs {})", zone.enemies[enemy_id].name);
     println!(
-        "  {:<34}{:>6}{:>7}{:>7}{:>8}{:>8}",
-        "loadout", "win%", "died%", "away%", "rounds", "hp left"
+        "  {:<34}{:>6}{:>7}{:>7}{:>8}{:>8}{:>7}{:>9}",
+        "loadout", "win%", "died%", "away%", "rounds", "hp left", "shots", "RU/kill"
     );
     for (i, loadout) in loadouts.iter().enumerate() {
         // A seed per row, fixed, so a row can be reproduced on its own.
         let s = simulate(loadout, enemy_id, trials, 1000 + i as u64, &zone);
+        let cost = s.ru_per_kill();
         println!(
-            "  {:<34}{:>5.0}%{:>6.0}%{:>6.0}%{:>8.1}{:>7.0}%",
+            "  {:<34}{:>5.0}%{:>6.0}%{:>6.0}%{:>8.1}{:>7.0}%{:>7.1}{:>9}",
             loadout.name,
             s.win_rate() * 100.0,
             s.died as f32 / trials as f32 * 100.0,
             s.escaped as f32 / trials as f32 * 100.0,
             s.rounds,
             s.hp_left * 100.0,
+            s.shots,
+            if cost.is_finite() { format!("{cost:.0}") } else { "-".into() },
         );
         let _ = &s;
     }
@@ -377,6 +507,207 @@ mod reports {
                 TRIALS,
             );
         }
+    }
+
+    /// What each round is worth, where armour is and where it is not (GUNS §7.2).
+    #[test]
+    #[ignore = "balance bench: cargo test --release -- --ignored --nocapture balance"]
+    fn ammunition_types() {
+        let rounds = |gun: &str, ids: &[&str]| -> Vec<Loadout> {
+            ids.iter()
+                .map(|id| Loadout {
+                    name: format!("{gun} + {id}"),
+                    ..Loadout::new("x").weapon(gun, &[]).ammo(id, 60).skill(60)
+                })
+                .collect()
+        };
+        let pistol = rounds("pistol", &["pistol_surplus", "pistol_round", "pistol_ap"]);
+        let rifle = rounds("rifle", &["rifle_surplus", "rifle_round", "rifle_ap"]);
+        // No armour at all, then the wall.
+        for enemy in ["blind_dog", "flesh", "pseudogiant"] {
+            report("Pistol rounds", enemy, &pistol, TRIALS);
+            report("Rifle rounds", enemy, &rifle, TRIALS);
+        }
+    }
+
+    /// What one mod is worth, held against everything else being equal - the same
+    /// shape as `affixes_on_one_weapon`, so the two lists can be read together.
+    #[test]
+    #[ignore = "balance bench"]
+    fn mods_on_one_weapon() {
+        let base = || Loadout::new("x").weapon("pistol", &[]).skill(55);
+        let mut loadouts = vec![Loadout { name: "pistol, bare".into(), ..base() }];
+        for id in ["grip", "laser", "scope", "bayonet", "barrel", "trigger", "mag_well", "muzzle"] {
+            loadouts.push(Loadout { name: format!("+ {id}"), ..base().mods(&[id]) });
+        }
+        loadouts.push(Loadout {
+            name: "scope + barrel + trigger".into(),
+            ..base().mods(&["scope", "barrel", "trigger"])
+        });
+        report("Mods on a pistol", "flesh", &loadouts, TRIALS);
+        report("Mods on a pistol", "bloodsucker", &loadouts, TRIALS);
+    }
+
+    /// What a magazine costs and what feeding it is worth (GUNS §7.2).
+    #[test]
+    #[ignore = "balance bench"]
+    fn the_magazine() {
+        let mut loadouts = Vec::new();
+        for gun in ["sawn_off", "pistol", "shotgun", "rifle"] {
+            for (label, policy, skill) in [
+                ("feeds it, skill 40", Policy::Fast, 40),
+                ("feeds it, skill 60 (1 AP)", Policy::Fast, 60),
+                ("never reloads", Policy::Dry, 40),
+            ] {
+                loadouts.push(Loadout {
+                    name: format!("{gun}, {label}"),
+                    ..Loadout::new("x").weapon(gun, &[]).skill(skill).policy(policy)
+                });
+            }
+        }
+        report("The magazine", "flesh", &loadouts, TRIALS);
+        report("The magazine", "bandit", &loadouts, TRIALS);
+    }
+
+    /// The gate, not a report (GUNS §7.2). GDD §8 records that taking an attack from
+    /// 4 AP to 3 changed what the game is; the brake is that lever pulled again, and
+    /// it does not ship until this table says the skill curve survives it.
+    #[test]
+    #[ignore = "balance bench"]
+    fn the_muzzle_brake() {
+        let mut loadouts = Vec::new();
+        for skill in [40, 60, 85] {
+            for (label, mods, policy) in [
+                ("3 AP, swings", vec![], Policy::Fast),
+                ("2 AP, swings", vec!["muzzle"], Policy::Fast),
+                ("3 AP, aims", vec![], Policy::Aimed),
+                ("2 AP, aims", vec!["muzzle"], Policy::Aimed),
+            ] {
+                loadouts.push(Loadout {
+                    name: format!("skill {skill}, {label}"),
+                    ..Loadout::new("x").weapon("rifle", &[]).mods(&mods).skill(skill).policy(policy)
+                });
+            }
+        }
+        for enemy in ["flesh", "bloodsucker", "pseudogiant"] {
+            report("The muzzle brake", enemy, &loadouts, TRIALS);
+        }
+    }
+
+    /// A mod has to be worth its price, the same way an affix does (GUNS §7.3).
+    #[test]
+    fn mods_pay_for_themselves() {
+        let zone = load_zone(Path::new("assets/data"));
+        let trials = 600;
+        let bare = Loadout::new("bare").weapon("pistol", &[]).skill(50);
+        let fitted = Loadout::new("fitted").weapon("pistol", &[]).mods(&["scope", "barrel"]).skill(50);
+
+        let a = simulate(&bare, "flesh", trials, 7, &zone);
+        let b = simulate(&fitted, "flesh", trials, 7, &zone);
+        assert!(
+            b.win_rate() > a.win_rate(),
+            "fitting should pay: bare {:.2} vs fitted {:.2}",
+            a.win_rate(),
+            b.win_rate()
+        );
+        assert!(b.rounds < a.rounds, "and should end it sooner");
+    }
+
+    /// Pierce has to earn its price where armour is, and lose it where armour is
+    /// not - otherwise the answer is just "buy the expensive one" (GUNS §7.3).
+    #[test]
+    fn armour_piercing_earns_its_price_and_not_everywhere() {
+        let zone = load_zone(Path::new("assets/data"));
+        let trials = 600;
+        let ball = Loadout::new("ball").weapon("rifle", &[]).ammo("rifle_round", 60).skill(70);
+        let ap = Loadout::new("ap").weapon("rifle", &[]).ammo("rifle_ap", 60).skill(70);
+
+        // The wall: armour is what stops you, so pierce is what gets through it.
+        let a = simulate(&ball, "pseudogiant", trials, 13, &zone);
+        let b = simulate(&ap, "pseudogiant", trials, 13, &zone);
+        assert!(
+            b.win_rate() > a.win_rate(),
+            "AP should beat ball on the pseudogiant: {:.2} vs {:.2}",
+            b.win_rate(),
+            a.win_rate()
+        );
+
+        // The dog has no armour to pierce, so the same rounds are only dearer.
+        let a = simulate(&ball, "blind_dog", trials, 13, &zone);
+        let b = simulate(&ap, "blind_dog", trials, 13, &zone);
+        assert!(
+            b.ru_per_kill() > a.ru_per_kill(),
+            "AP should cost more per dog than ball: {:.0} vs {:.0}",
+            b.ru_per_kill(),
+            a.ru_per_kill()
+        );
+    }
+
+    /// The 2 AP has to buy something, or nobody would ever pay it (GUNS §7.3).
+    #[test]
+    fn reloading_beats_running_dry() {
+        let zone = load_zone(Path::new("assets/data"));
+        let trials = 600;
+        // The sawn-off is where the magazine bites: two shells, then a pause.
+        let feeds = Loadout::new("feeds it").weapon("sawn_off", &[]).skill(40);
+        let dry = Loadout { policy: Policy::Dry, ..feeds.clone() };
+
+        let a = simulate(&dry, "flesh", trials, 17, &zone);
+        let b = simulate(&feeds, "flesh", trials, 17, &zone);
+        assert!(
+            b.win_rate() > a.win_rate() + 0.15,
+            "feeding it has to be worth the AP: dry {:.2} vs fed {:.2}",
+            a.win_rate(),
+            b.win_rate()
+        );
+        assert!(b.reloads > 0.5, "a two-shell gun reloads most fights: {:.1}", b.reloads);
+    }
+
+    /// A magazine number tuned into a wall is the failure this catches: both guns
+    /// still win the fights they are meant to win (GUNS §7.3).
+    #[test]
+    fn the_magazine_does_not_decide_the_fight() {
+        let zone = load_zone(Path::new("assets/data"));
+        let trials = 600;
+        let sawn_off = Loadout::new("sawn-off").weapon("sawn_off", &[]).skill(40);
+        let rifle = Loadout::new("rifle").weapon("rifle", &[]).armor("vest", &[]).skill(70);
+
+        let a = simulate(&sawn_off, "flesh", trials, 19, &zone);
+        assert!(a.win_rate() > 0.5, "two shells still take a Flesh: {a:?}");
+        let b = simulate(&rifle, "bloodsucker", trials, 19, &zone);
+        assert!(b.win_rate() > 0.5, "twenty rounds still take a bloodsucker: {b:?}");
+    }
+
+    /// GDD §7: ammunition is a sink, not a tax. A Flesh Eye sells for 400, and the
+    /// fight that produced it must not have cost anything like that (GUNS §7.3).
+    #[test]
+    fn ammunition_is_a_sink_not_a_tax() {
+        let zone = load_zone(Path::new("assets/data"));
+        let s = simulate(
+            &Loadout::new("kitted").weapon("rifle", &[]).armor("vest", &[]).skill(70),
+            "flesh",
+            600,
+            23,
+            &zone,
+        );
+        let eye = zone.items["flesh_eye"].base as f32;
+        assert!(s.ru_per_kill() > 0.0, "shooting things costs money: {s:?}");
+        assert!(
+            s.ru_per_kill() < eye / 3.0,
+            "a Flesh must be worth shooting: {:.0} RU of ammunition per {eye} RU eye",
+            s.ru_per_kill()
+        );
+    }
+
+    /// The ten rounds in the starting kit are worth nothing until somebody finds a
+    /// pistol. Cheap, and it catches a caliber wired to the wrong gun (GUNS §7.3).
+    #[test]
+    fn the_kit_ammunition_is_useless_without_a_gun() {
+        let zone = load_zone(Path::new("assets/data"));
+        let knife = Loadout::new("knife").weapon("knife", &[]).skill(25);
+        let s = simulate(&knife, "blind_dog", 600, 5, &zone);
+        assert_eq!(s.spent, 0.0, "a knife spends no rounds");
+        assert!(s.win_rate() > 0.6, "and still handles the first dog: {s:?}");
     }
 
     /// The guard that stays on: an affix has to be worth carrying, and a fight has

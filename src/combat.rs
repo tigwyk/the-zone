@@ -4,7 +4,7 @@
 
 use bevy::prelude::*;
 
-use crate::area::{draw_art, EnemyData, ItemKind, ZoneData};
+use crate::area::{draw_art, Caliber, EnemyData, ItemKind, ZoneData};
 use crate::loot::{self, Effect};
 use crate::render::{TileGrid, PALETTE};
 use crate::run::{check, check_skill, Outcome, Rng, RunState, Skill, AGI, INT, LCK, PER};
@@ -20,8 +20,12 @@ const MENU_ROW: usize = 22;
 pub(crate) const AP_ATTACK: i32 = 3;
 pub(crate) const AP_AIMED: i32 = 6;
 pub(crate) const AP_ITEM: i32 = 4;
-/// The cheapest thing anyone can do. Below this, the turn is over.
-const AP_MIN: i32 = AP_ATTACK;
+/// GUNS §3: two points to feed a gun, one if you have handled one before.
+pub(crate) const AP_RELOAD: i32 = 2;
+pub(crate) const AP_RELOAD_FAST: i32 = 1;
+pub(crate) const RELOAD_FAST_SKILL: i32 = 60;
+/// However many mods are bolted on, an attack costs at least this (GUNS §1).
+const AP_ATTACK_MIN: i32 = 2;
 
 const AIMED_BONUS: i32 = 20;
 /// An aimed shot crits on 5, not just on 1 (GDD §8).
@@ -90,6 +94,7 @@ pub(crate) fn start(
 pub(crate) enum Verb {
     Attack,
     Aimed,
+    Reload,
     Flee,
 }
 
@@ -101,38 +106,159 @@ struct InHand {
     damage: i32,
     to_hit: i32,
     crit: u32,
+    /// What one swing or shot costs, after the mods and never under the floor.
+    ap: i32,
+    /// What it eats, and what is in it. `None` is a blade, and never empty.
+    caliber: Option<Caliber>,
+    loaded: u32,
+    capacity: u32,
+    /// What the rounds in it are worth: armour pierced (GUNS §2).
+    pierce: i32,
 }
 
 fn weapon(run: &RunState, zone: &ZoneData) -> InHand {
     let held = run.weapon.and_then(|uid| run.stack(uid));
     let kind = held.map(|s| zone.items[&s.id].kind);
-    let (dice, skill) = match kind {
-        Some(ItemKind::Weapon { dice, skill }) => (dice, skill),
-        _ => (UNARMED, Skill::Melee),
+    let (dice, skill, caliber, mag) = match kind {
+        Some(ItemKind::Weapon { dice, skill, ammo, mag }) => (dice, skill, ammo, mag),
+        _ => (UNARMED, Skill::Melee, None, 0),
     };
     let of = |effect| held.map_or(0, |s| loot::bonus(s, zone, effect));
+    // What is actually chambered. Nothing in the magazine is worth nothing.
+    let loaded = held.map_or(0, |s| s.loaded);
+    let round = held
+        .and_then(|s| s.loaded_with.as_ref())
+        .filter(|_| loaded > 0)
+        .and_then(|id| zone.items.get(id))
+        .map_or((0, 0, 0), |i| match i.kind {
+            ItemKind::Ammo { damage, to_hit, pierce, .. } => (damage, to_hit, pierce),
+            _ => (0, 0, 0),
+        });
     InHand {
         dice,
         skill,
-        damage: of(Effect::Damage),
-        to_hit: of(Effect::ToHit),
+        damage: of(Effect::Damage) + round.0,
+        to_hit: of(Effect::ToHit) + round.1,
         crit: of(Effect::Crit).max(0) as u32,
+        ap: (AP_ATTACK + of(Effect::ApCost)).max(AP_ATTACK_MIN),
+        caliber,
+        loaded,
+        capacity: (mag as i32 + of(Effect::Mag)).max(1) as u32,
+        pierce: round.2,
     }
 }
 
-/// The menu for this moment: attack, aim, or run. Using an item is the footer's
-/// Inventory, not a fourth verb.
-pub(crate) fn menu(combat: &Combat) -> Vec<(String, Verb)> {
-    let mut menu = Vec::new();
-    if combat.ap >= AP_ATTACK {
-        menu.push((format!("Attack ({AP_ATTACK} AP)"), Verb::Attack));
+impl InHand {
+    /// A gun with nothing in it cannot be fired (GUNS §3). A blade is never empty.
+    fn empty(&self) -> bool {
+        self.caliber.is_some() && self.loaded == 0
     }
-    if combat.ap >= AP_AIMED {
-        menu.push((format!("Aimed Attack ({AP_AIMED} AP)"), Verb::Aimed));
+}
+
+/// GUNS §3: two points to feed it, one if you have handled a gun before.
+pub(crate) fn reload_ap(run: &RunState) -> i32 {
+    if run.skills[Skill::SmallGuns.index()] >= RELOAD_FAST_SKILL {
+        AP_RELOAD_FAST
+    } else {
+        AP_RELOAD
+    }
+}
+
+/// The rounds in the pack that fit what is in hand, cheapest first, but the type
+/// already in the gun ahead of all of them - a reload does not quietly downgrade you.
+fn compatible<'a>(
+    run: &RunState,
+    zone: &'a ZoneData,
+    hand: &InHand,
+    current: Option<&str>,
+) -> Vec<&'a String> {
+    let Some(caliber) = hand.caliber else {
+        return Vec::new();
+    };
+    let mut ids: Vec<&String> = zone.ammo_of(caliber).filter(|id| run.count_of(id) > 0).collect();
+    if let Some(current) = current {
+        ids.sort_by_key(|id| id.as_str() != current);
+    }
+    ids
+}
+
+/// Whether feeding it is possible at all: a gun, room in the magazine, and rounds.
+fn can_reload(run: &RunState, zone: &ZoneData) -> bool {
+    let hand = weapon(run, zone);
+    if hand.caliber.is_none() || hand.loaded >= hand.capacity {
+        return false;
+    }
+    let with = run.weapon.and_then(|uid| run.stack(uid)).and_then(|s| s.loaded_with.clone());
+    !compatible(run, zone, &hand, with.as_deref()).is_empty()
+}
+
+/// Fills the magazine from the pack. Rounds of another type come out and go back in
+/// the pack - this is a text game, not an inventory puzzle (GUNS §3).
+pub(crate) fn reload(run: &mut RunState, zone: &ZoneData) -> String {
+    let hand = weapon(run, zone);
+    let Some(uid) = run.weapon else {
+        return "There is nothing in your hands.".into();
+    };
+    let current = run.stack(uid).and_then(|s| s.loaded_with.clone());
+    let Some(id) = compatible(run, zone, &hand, current.as_deref()).first().map(|id| (*id).clone())
+    else {
+        return "Nothing in the pack fits it.".into();
+    };
+
+    if let Some(old) = current.filter(|old| *old != id) {
+        let out = hand.loaded;
+        if out > 0 {
+            run.add_item(&old, out);
+            if let Some(stack) = run.stack_mut(uid) {
+                stack.loaded = 0;
+            }
+        }
+    }
+    let in_gun = run.stack(uid).map_or(0, |s| s.loaded);
+    let want = hand.capacity.saturating_sub(in_gun).min(run.count_of(&id));
+    if want == 0 {
+        return "It is already full.".into();
+    }
+    run.take_item(&id, want);
+    if let Some(stack) = run.stack_mut(uid) {
+        stack.loaded = in_gun + want;
+        stack.loaded_with = Some(id.clone());
+    }
+    format!("You feed it {want} of the {}.", zone.items[&id].name)
+}
+
+/// The menu for this moment: attack, aim, feed it, or run. Using an item is still
+/// the footer’s Inventory, not a fifth verb.
+pub(crate) fn menu(combat: &Combat, run: &RunState, zone: &ZoneData) -> Vec<(String, Verb)> {
+    let hand = weapon(run, zone);
+    let mut menu = Vec::new();
+    // An empty gun offers no attack at all: you cannot dry-fire (GUNS §3).
+    if !hand.empty() {
+        if combat.ap >= hand.ap {
+            menu.push((format!("Attack ({} AP)", hand.ap), Verb::Attack));
+        }
+        if combat.ap >= AP_AIMED {
+            menu.push((format!("Aimed Attack ({AP_AIMED} AP)"), Verb::Aimed));
+        }
+    }
+    let ap = reload_ap(run);
+    if combat.ap >= ap && can_reload(run, zone) {
+        menu.push((format!("Reload ({ap} AP)"), Verb::Reload));
     }
     // Flee costs whatever is left, so it is always on the table.
     menu.push(("Flee".into(), Verb::Flee));
     menu
+}
+
+/// The cheapest thing that could be done right now; below it, the turn is over.
+/// Flee is not in it - it costs whatever is left, so it would end no turn (GUNS §3).
+fn cheapest(run: &RunState, zone: &ZoneData) -> i32 {
+    let hand = weapon(run, zone);
+    let mut ap = if hand.empty() { i32::MAX } else { hand.ap };
+    if can_reload(run, zone) {
+        ap = ap.min(reload_ap(run));
+    }
+    ap
 }
 
 // ---- resolving a turn ----
@@ -145,11 +271,17 @@ pub(crate) fn roll_dice(dice: (u32, u32), rng: &mut Rng) -> i32 {
 
 /// GDD §8: damage = dice - armour, and a crit doubles what got *through* the armour
 /// rather than ignoring it, so a suit matters against the big hits too. `flat` is
-/// what the affixes add, and it doubles with the rest on a crit.
+/// what the affixes and the round add, and it doubles with the rest on a crit.
 fn damage(dice: (u32, u32), flat: i32, armor: i32, crit: bool, rng: &mut Rng) -> i32 {
     let rolled = roll_dice(dice, rng) + flat;
     let base = (rolled - armor).max(1);
     if crit { base * 2 } else { base }
+}
+
+/// What is left of a suit once the round has been through it (GUNS §2). Pierce takes
+/// armour off, never below nothing - it cannot make a hit worse than unarmoured.
+fn pierced(armor: i32, pierce: i32) -> i32 {
+    (armor - pierce).max(0)
 }
 
 /// Damage resistance: what the suit is, plus what the Zone put on it.
@@ -198,6 +330,10 @@ pub(crate) fn act(
 
     let mut message = match verb {
         Verb::Attack | Verb::Aimed => attack(verb == Verb::Aimed, combat, run, zone, &enemy, rng),
+        Verb::Reload => {
+            combat.ap -= reload_ap(run);
+            reload(run, zone)
+        }
         Verb::Flee => {
             combat.ap = 0;
             // GDD §8: a Sneak check, *or* AGI against the fastest thing chasing you.
@@ -235,7 +371,13 @@ fn attack(
     rng: &mut Rng,
 ) -> String {
     let hand = weapon(run, zone);
-    combat.ap -= if aimed { AP_AIMED } else { AP_ATTACK };
+    combat.ap -= if aimed { AP_AIMED } else { hand.ap };
+    // The round leaves the magazine whether or not it hits anything (GUNS §3).
+    if hand.caliber.is_some() {
+        if let Some(stack) = run.weapon.and_then(|uid| run.stack_mut(uid)) {
+            stack.loaded = stack.loaded.saturating_sub(1);
+        }
+    }
 
     let modifier = night_penalty(run, zone)
         + hand.to_hit
@@ -248,7 +390,8 @@ fn attack(
         Outcome::CritFail => "The shot goes wide and you lose your footing.".into(),
         Outcome::Success | Outcome::CritSuccess => {
             let crit = out == Outcome::CritSuccess;
-            let hit = damage(hand.dice, hand.damage, enemy.armor, crit, rng);
+            let armor = pierced(enemy.armor, hand.pierce);
+            let hit = damage(hand.dice, hand.damage, armor, crit, rng);
             combat.hp -= hit;
             if crit {
                 format!("You hit the {} clean. {hit} damage.", enemy.name)
@@ -291,7 +434,7 @@ pub(crate) fn end_turn(
     zone: &ZoneData,
     rng: &mut Rng,
 ) -> Option<String> {
-    if !combat.active || combat.ap >= AP_MIN {
+    if !combat.active || combat.ap >= cheapest(run, zone) {
         return None;
     }
     let enemy = zone.enemies[&combat.enemy].clone();
@@ -374,8 +517,13 @@ pub(crate) fn build_combat_grid(
 
     let hand = weapon(run, zone);
     let plus = if hand.damage > 0 { format!("+{}", hand.damage) } else { String::new() };
+    // A gun says what is left in it; a blade has nothing to say (GUNS §4).
+    let ammo = match hand.caliber {
+        Some(_) => format!("  AMMO {}/{}", hand.loaded, hand.capacity),
+        None => String::new(),
+    };
     let mine = format!(
-        "{:<16} HP {:>3}/{:<3}  AP {}   {}d{}{plus} {}  DR {}",
+        "{:<16} HP {:>3}/{:<3}  AP {}   {}d{}{plus} {}  DR {}{ammo}",
         "You",
         run.hp.max(0),
         run.max_hp,
@@ -387,7 +535,7 @@ pub(crate) fn build_combat_grid(
     );
     grid.text(0, YOU_ROW, &mine, PALETTE.status, false);
 
-    for (i, (label, _)) in menu(combat).iter().enumerate() {
+    for (i, (label, _)) in menu(combat, run, zone).iter().enumerate() {
         row(grid, 0, MENU_ROW + i, i == combat.sel, PALETTE.menu, false, label);
     }
 
@@ -403,10 +551,15 @@ mod tests {
     use crate::area::load_zone;
     use std::path::Path;
 
-    /// Puts one of `id` in the pack and in the hand.
-    fn equip(run: &mut RunState, id: &str) {
+    /// Puts one of `id` in the pack and in the hand, fed if it needs feeding.
+    fn equip(run: &mut RunState, zone: &ZoneData, id: &str) {
         run.add_item(id, 1);
         run.weapon = Some(run.items.iter().find(|s| s.id == id).unwrap().uid);
+        if let ItemKind::Weapon { ammo: Some(caliber), .. } = zone.items[id].kind {
+            let round = zone.ammo_of(caliber).next().expect("a round that fits").clone();
+            run.add_item(&round, 40);
+            reload(run, zone);
+        }
     }
 
     fn fixture() -> (ZoneData, RunState, Rng, Combat) {
@@ -434,18 +587,140 @@ mod tests {
 
     #[test]
     fn the_menu_is_just_attack_aim_and_flee() {
-        let (_, _, _, combat) = fixture();
+        let (zone, run, _, combat) = fixture();
 
-        // No distance to close, so the whole menu is three verbs, in order.
-        let verbs: Vec<Verb> = menu(&combat).iter().map(|(_, v)| *v).collect();
+        // Knife in hand: no distance to close and nothing to feed, so three verbs.
+        let verbs: Vec<Verb> = menu(&combat, &run, &zone).iter().map(|(_, v)| *v).collect();
         assert_eq!(verbs, vec![Verb::Attack, Verb::Aimed, Verb::Flee]);
 
         // An empty AP pool hides the swings but keeps the escape hatch.
         let mut combat = combat;
         combat.ap = 0;
-        let m = menu(&combat);
+        let m = menu(&combat, &run, &zone);
         assert_eq!(m.len(), 1);
         assert_eq!(m[0].1, Verb::Flee);
+    }
+
+    #[test]
+    fn pierce_comes_off_armour_and_floors_at_nothing() {
+        // GUNS §2: a round that pierces takes armour off, and can never make a hit
+        // worse than an unarmoured one.
+        assert_eq!(pierced(3, 2), 1);
+        assert_eq!(pierced(3, 0), 3);
+        assert_eq!(pierced(1, 3), 0, "pierce cannot turn armour into a bonus");
+    }
+
+    #[test]
+    fn an_empty_gun_offers_no_attack_and_a_reload() {
+        let (zone, mut run, _, mut combat) = fixture();
+        equip(&mut run, &zone, "pistol");
+        combat.ap = 12;
+
+        let verbs = |run: &RunState| -> Vec<Verb> {
+            menu(&combat, run, &zone).iter().map(|(_, v)| *v).collect()
+        };
+        // Full: nothing to feed, so the menu is the old three.
+        assert_eq!(verbs(&run), vec![Verb::Attack, Verb::Aimed, Verb::Flee]);
+
+        // A round down, and topping it up is on the table.
+        run.stack_mut(run.weapon.unwrap()).unwrap().loaded -= 1;
+        assert_eq!(verbs(&run), vec![Verb::Attack, Verb::Aimed, Verb::Reload, Verb::Flee]);
+
+        // Empty: you cannot dry-fire, and feeding it is the only thing left to do.
+        run.stack_mut(run.weapon.unwrap()).unwrap().loaded = 0;
+        assert_eq!(verbs(&run), vec![Verb::Reload, Verb::Flee]);
+
+        // Empty with nothing in the pack either: only the way out.
+        let round = run.stack(run.weapon.unwrap()).unwrap().loaded_with.clone().unwrap();
+        let all = run.count_of(&round);
+        run.take_item(&round, all);
+        assert_eq!(verbs(&run), vec![Verb::Flee]);
+
+        // A blade is never empty and never asks to be fed.
+        equip(&mut run, &zone, "knife");
+        assert_eq!(verbs(&run), vec![Verb::Attack, Verb::Aimed, Verb::Flee]);
+    }
+
+    #[test]
+    fn a_reload_fills_the_magazine_and_never_loses_a_round() {
+        let (zone, mut run, _, _) = fixture();
+        equip(&mut run, &zone, "pistol"); // 8 in the magazine, 40 rounds bought
+        let uid = run.weapon.unwrap();
+        let round = run.stack(uid).unwrap().loaded_with.clone().unwrap();
+        let total = |run: &RunState| {
+            run.count_of(&round) + run.stack(uid).map_or(0, |s| s.loaded)
+        };
+        assert_eq!(run.stack(uid).unwrap().loaded, 8);
+        let held = total(&run);
+
+        // Three shots out, three back in, and nothing has evaporated.
+        run.stack_mut(uid).unwrap().loaded = 5;
+        let msg = reload(&mut run, &zone);
+        assert_eq!(run.stack(uid).unwrap().loaded, 8, "{msg}");
+        assert_eq!(total(&run), held - 3, "the rounds came out of the pack");
+
+        // A full magazine takes nothing.
+        assert!(reload(&mut run, &zone).starts_with("It is already full"));
+        assert_eq!(total(&run), held - 3);
+
+        // Run that type out and the reload falls to whatever else fits - and the
+        // five still in the magazine come out and go back in the pack (GUNS §3).
+        let left = run.count_of(&round);
+        run.take_item(&round, left);
+        run.add_item("pistol_ap", 8);
+        run.stack_mut(uid).unwrap().loaded = 5;
+        reload(&mut run, &zone);
+        assert_eq!(run.stack(uid).unwrap().loaded_with.as_deref(), Some("pistol_ap"));
+        assert_eq!(run.stack(uid).unwrap().loaded, 8);
+        assert_eq!(run.count_of(&round), 5, "the old rounds went back in the pack");
+        assert_eq!(run.count_of("pistol_ap"), 0, "and the new ones came out of it");
+    }
+
+    #[test]
+    fn a_good_shot_reloads_faster() {
+        let (_, mut run, _, _) = fixture();
+        // GUNS §3: the breakpoint is a real edge, not a curve.
+        run.skills[Skill::SmallGuns.index()] = RELOAD_FAST_SKILL - 1;
+        assert_eq!(reload_ap(&run), AP_RELOAD);
+        run.skills[Skill::SmallGuns.index()] = RELOAD_FAST_SKILL;
+        assert_eq!(reload_ap(&run), AP_RELOAD_FAST);
+    }
+
+    #[test]
+    fn no_stack_of_mods_takes_an_attack_below_two_ap() {
+        let (zone, mut run, _, _) = fixture();
+        equip(&mut run, &zone, "pistol");
+        let uid = run.weapon.unwrap();
+        // One brake is 2 AP; three of them would be zero, and zero is a free turn
+        // for ever. The floor is what stops that (GUNS §1).
+        run.stack_mut(uid).unwrap().mods = vec!["muzzle".into()];
+        assert_eq!(weapon(&run, &zone).ap, 2);
+        run.stack_mut(uid).unwrap().mods =
+            vec!["muzzle".into(), "muzzle".into(), "muzzle".into()];
+        assert_eq!(weapon(&run, &zone).ap, 2, "the floor holds");
+    }
+
+    #[test]
+    fn the_turn_ends_when_nothing_is_affordable() {
+        let (zone, mut run, mut rng, mut combat) = fixture();
+        equip(&mut run, &zone, "pistol");
+
+        // Two points, an empty gun and nothing to feed it with: the turn has to end
+        // rather than sit there with a menu of one impossible verb.
+        let uid = run.weapon.unwrap();
+        let round = run.stack(uid).unwrap().loaded_with.clone().unwrap();
+        let all = run.count_of(&round);
+        run.take_item(&round, all);
+        run.stack_mut(uid).unwrap().loaded = 0;
+        combat.ap = 2;
+        assert!(end_turn(&mut combat, &mut run, &zone, &mut rng).is_some());
+        assert_eq!(combat.ap, turn_ap(&run, &zone), "a fresh turn came back");
+
+        // With rounds in the pack, that same 2 AP still buys a reload, so the turn
+        // is not over yet.
+        run.add_item(&round, 8);
+        combat.ap = 2;
+        assert!(end_turn(&mut combat, &mut run, &zone, &mut rng).is_none());
     }
 
     #[test]
@@ -506,7 +781,7 @@ mod tests {
         start("controller", &mut combat, &mut run2, &zone, &mut rng);
         run = run2;
         run.attrs[INT] = 1;
-        equip(&mut run, "pistol");
+        equip(&mut run, &zone, "pistol");
         run.skills[Skill::SmallGuns.index()] = 100;
 
         let mut lost = 0;
@@ -526,7 +801,7 @@ mod tests {
     #[test]
     fn a_fight_ends_one_way_or_the_other() {
         let (zone, mut run, mut rng, mut combat) = fixture();
-        equip(&mut run, "pistol");
+        equip(&mut run, &zone, "pistol");
         run.skills[Skill::SmallGuns.index()] = 90;
 
         // Drive it like a player would: swing until something gives.
@@ -534,11 +809,17 @@ mod tests {
             if !combat.active || run.hp <= 0 {
                 break;
             }
-            let verb = menu(&combat)
-                .iter()
-                .find(|(_, v)| *v == Verb::Attack)
-                .map(|(_, v)| *v)
-                .unwrap_or(Verb::Flee);
+            // Swing, feed it when it is empty, run when there is nothing else -
+            // the same order a player works down the menu in.
+            let m = menu(&combat, &run, &zone);
+            let has = |v: Verb| m.iter().any(|(_, x)| *x == v);
+            let verb = if has(Verb::Attack) {
+                Verb::Attack
+            } else if has(Verb::Reload) {
+                Verb::Reload
+            } else {
+                Verb::Flee
+            };
             act(verb, &mut combat, &mut run, &zone, &mut rng);
         }
         assert!(!combat.active, "the fight resolved");

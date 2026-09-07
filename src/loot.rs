@@ -99,6 +99,10 @@ pub(crate) enum Effect {
     Attr(usize),
     /// Rads an hour. Negative shields you; positive is what the Zone charges.
     Rads,
+    /// Shifts what an attack costs. Negative is faster; the floor is in `combat.rs`.
+    ApCost,
+    /// Rounds on top of the weapon's own magazine.
+    Mag,
 }
 
 #[derive(Deserialize, Clone)]
@@ -145,19 +149,46 @@ pub(crate) struct ItemStack {
     pub count: u32,
     #[serde(default)]
     pub affixes: Vec<Roll>,
+    /// Mods fitted to it, by item id, in the order they went on (GUNS §1).
+    #[serde(default)]
+    pub mods: Vec<String>,
+    /// Rounds in the magazine, and what they are (GUNS §3).
+    #[serde(default)]
+    pub loaded: u32,
+    #[serde(default)]
+    pub loaded_with: Option<String>,
 }
+
+/// Three slots on anything, until a playtest says a sniper should differ from a
+/// sawn-off (GUNS §1).
+pub(crate) const MOD_SLOTS: usize = 3;
 
 impl ItemStack {
     pub fn plain(uid: u32, id: &str, count: u32) -> Self {
-        ItemStack { uid, id: id.to_string(), count, affixes: Vec::new() }
+        ItemStack {
+            uid,
+            id: id.to_string(),
+            count,
+            affixes: Vec::new(),
+            mods: Vec::new(),
+            loaded: 0,
+            loaded_with: None,
+        }
     }
 
     pub fn rarity(&self) -> Rarity {
         Rarity::of(self.affixes.len())
     }
 
+    /// Whether the Zone has been at it. This is the rarity question, and nothing else.
     pub fn is_plain(&self) -> bool {
         self.affixes.is_empty()
+    }
+
+    /// Whether it can merge into another stack of the same id. A gun somebody has
+    /// fitted or loaded is one particular gun, however plain it started (GUNS §4).
+    pub fn is_stackable(&self) -> bool {
+        self.affixes.is_empty() && self.mods.is_empty() && self.loaded == 0
     }
 }
 
@@ -181,18 +212,34 @@ pub(crate) fn display_name(stack: &ItemStack, zone: &ZoneData) -> String {
     }
 }
 
-/// The total of one effect across an item's rolls.
+/// The total of one effect across an item's rolls and the mods fitted to it. Every
+/// existing reader of this picks mods up for free; that is why mods are shaped this
+/// way (GUNS §4).
 pub(crate) fn bonus(stack: &ItemStack, zone: &ZoneData, effect: Effect) -> i32 {
-    stack
+    let rolled: i32 = stack
         .affixes
         .iter()
         .filter_map(|r| zone.affixes.get(&r.affix).map(|a| (a, r.magnitude)))
         .filter(|(a, _)| a.effect == effect)
         .map(|(_, m)| m)
-        .sum()
+        .sum();
+    rolled + mods(stack, zone).filter(|(e, _)| *e == effect).map(|(_, v)| v).sum::<i32>()
 }
 
-/// What it is worth before the vendor's markup: the base, plus what the Zone put on it.
+/// The mods fitted to it, as effect and magnitude. Anything else in the list is
+/// content that has changed under a save; skip it rather than panicking on a load.
+pub(crate) fn mods<'a>(
+    stack: &'a ItemStack,
+    zone: &'a ZoneData,
+) -> impl Iterator<Item = (Effect, i32)> + 'a {
+    stack.mods.iter().filter_map(|id| match zone.items.get(id)?.kind {
+        ItemKind::Mod { effect, value, .. } => Some((effect, value)),
+        _ => None,
+    })
+}
+
+/// What it is worth before the vendor's markup: the base, what the Zone put on it,
+/// and what somebody bolted to it.
 pub(crate) fn value(stack: &ItemStack, zone: &ZoneData) -> u32 {
     let base = zone.items[&stack.id].base;
     let extra: u32 = stack
@@ -201,7 +248,8 @@ pub(crate) fn value(stack: &ItemStack, zone: &ZoneData) -> u32 {
         .filter_map(|r| zone.affixes.get(&r.affix).map(|a| (a, r.magnitude)))
         .map(|(a, m)| a.value * m.unsigned_abs())
         .sum();
-    base + extra
+    let fitted: u32 = stack.mods.iter().filter_map(|id| zone.items.get(id)).map(|i| i.base).sum();
+    base + extra + fitted
 }
 
 // ---- rolling ----
@@ -266,7 +314,7 @@ pub(crate) fn roll_item(
         side = if side == Slot::Prefix { Slot::Suffix } else { Slot::Prefix };
     }
 
-    ItemStack { uid, id: id.to_string(), count: 1.max(count.min(1)), affixes }
+    ItemStack { affixes, ..ItemStack::plain(uid, id, 1.max(count.min(1))) }
 }
 
 /// An affix of the right side that fits this kind and is not already on it.
@@ -353,6 +401,42 @@ mod tests {
         assert!(seen_affixed, "nothing ever rolled");
     }
 
+    #[test]
+    fn a_bonus_is_what_the_zone_rolled_plus_what_somebody_bolted_on() {
+        let zone = load_zone(Path::new("assets/data"));
+        let mut pistol = ItemStack {
+            affixes: vec![Roll { affix: "keen".into(), magnitude: 6 }],
+            ..ItemStack::plain(1, "pistol", 1)
+        };
+        assert_eq!(bonus(&pistol, &zone, Effect::ToHit), 6);
+
+        // A scope is +10 to hit, and it adds to the roll rather than replacing it.
+        pistol.mods = vec!["scope".into()];
+        assert_eq!(bonus(&pistol, &zone, Effect::ToHit), 16);
+        // The price follows both.
+        assert_eq!(
+            value(&pistol, &zone),
+            zone.items["pistol"].base + zone.affixes["keen"].value * 6 + zone.items["scope"].base
+        );
+        // But the rarity does not: mods are not the Zone (GUNS §4).
+        assert_eq!(pistol.rarity(), Rarity::Touched);
+        let plain = ItemStack { mods: vec!["scope".into()], ..ItemStack::plain(2, "pistol", 1) };
+        assert_eq!(plain.rarity(), Rarity::Plain);
+        assert_eq!(bonus(&plain, &zone, Effect::Damage), 0, "a scope is not damage");
+    }
+
+    #[test]
+    fn a_fitted_or_loaded_thing_is_its_own_object() {
+        // Two bare pistols are two of a kind; one with a scope on it, or rounds in
+        // it, is one particular pistol and must not merge (GUNS §4).
+        assert!(ItemStack::plain(1, "pistol", 1).is_stackable());
+        let fitted = ItemStack { mods: vec!["scope".into()], ..ItemStack::plain(2, "pistol", 1) };
+        assert!(!fitted.is_stackable());
+        assert!(fitted.is_plain(), "still plain: rarity is the affixes and nothing else");
+        let loaded = ItemStack { loaded: 3, ..ItemStack::plain(3, "pistol", 1) };
+        assert!(!loaded.is_stackable());
+    }
+
     /// How many of each rarity fall out of `n` rolls.
     fn spread(tier: u32, luck: i32, n: usize, rng: &mut Rng) -> [usize; 5] {
         let mut counts = [0usize; 5];
@@ -407,13 +491,11 @@ mod tests {
         assert_eq!(value(&plain, &zone), zone.items["pistol"].base);
 
         let fancy = ItemStack {
-            uid: 2,
-            id: "pistol".into(),
-            count: 1,
             affixes: vec![
                 Roll { affix: prefix.0.clone(), magnitude: 2 },
                 Roll { affix: suffix.0.clone(), magnitude: 3 },
             ],
+            ..ItemStack::plain(2, "pistol", 1)
         };
         let name = display_name(&fancy, &zone);
         assert!(name.starts_with(&prefix.1.name), "{name}");

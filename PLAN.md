@@ -51,10 +51,16 @@ settles itself, including a five-step chain to the centre. F2 maps what you have
 walked, F3 is the journal and the lore you have turned up.
 
 **Combat** is turn-based at close quarters on Fallout's AP economy: 5 + AGI/2 a turn, 3
-to swing, 6 to aim, 4 to dig something out of the pack, and no distance to close — both
-sides are in reach from the first swing. Seven things fight back, two with tricks of
-their own — a bloodsucker that opens on you if you do not spot it, a controller that
-takes the turn off a weak mind.
+to swing, 6 to aim, 2 to feed the gun (1 if you know how), 4 to dig something out of
+the pack, and no distance to close — both sides are in reach from the first swing.
+Seven things fight back, two with tricks of their own — a bloodsucker that opens on you
+if you do not spot it, a controller that takes the turn off a weak mind.
+
+**Guns run out.** Six of them take a caliber and hold a magazine; a round leaves it
+whether or not it hits, an empty gun offers no attack at all, and the fourth verb is
+Reload. Nine kinds of round move to-hit, damage and armour-pierce, and ten mods bolt
+onto a weapon or a suit at a fixed magnitude — the Zone rolls affixes, a workshop does
+not. Three fit on anything, and pulling one back off is a Repair check that can eat it.
 
 **Loot** the Zone has been at carries affixes, and how many it carries *is* its rarity:
 plain, touched, marked, warped, relic. A prefix goes in front of the name and a suffix
@@ -110,7 +116,9 @@ native scale factor so high-DPI (Retina) displays get a readable, sharp grid.
   bandits exist now, so the GDD §4 triggers could be wired to them directly.
 - No `MainMenu`, and no new run without relaunching: an ending or a death ends the
   process.
-- No rep-gated post entry, no roving encounters, no cover, encumbrance or ammo.
+- No rep-gated post entry, no roving encounters, no cover or encumbrance.
+- No weapon durability, jamming, burst fire or ammunition weight; a botched Repair
+  check eating a mod is the only way gear is ever the worse for wear.
 - Anomaly damage ignores armour; a scanned field is simply safe to cross.
 - Emissions do not swap an area's menu; the hour of warning is the whole mechanic.
 - `#!` colour-override lines in `.area` files are still not implemented.
@@ -452,8 +460,27 @@ numbered so SPEC can point at them.
   into gear and meds), the forge (`Science` bakes an artifact's affix into held gear,
   risking the `hot` curse), and Medicine on the pack (using a med is a Medicine check).
   The bench lives in the hatch; `recipes.ron` holds the recipes.
+- [x] **M12 — Guns.** Weapon mods, ammunition types and reloading, specced in GUNS.md
+  and built to it. Mods ride `loot::bonus` beside the affixes; ammunition moves to-hit,
+  damage and pierce; the magazine lives on the item instance. Two new effects
+  (`ApCost`, `Mag`), one new `Caliber` enum, ninety-odd new lines of content. The bench
+  grew mods, ammunition, a `Dry` policy and a rubles-per-kill column; the GDD §8 roster
+  table was re-measured because ammunition made every row of it a guess.
+
+  **What it found.** Every gun loadout in the bench held an *empty* gun the moment
+  magazines existed, which took three guards and a play-through to zero — the harness now buys
+  ammunition with the gun, as a player would. The sawn-off then lost the first Flesh
+  fight it is meant to win, because a two-shell magazine costs it a turn in three; a
+  bigger magazine did not fix it (44%) and 3d6 did, so the cheap gun now hits hard and
+  reloads constantly. And the aim-versus-swing numbers in GDD §8 turned out to have
+  been stale *before* this work: re-running them against the previous commit gives the
+  same figures as today, and the aimed shot does not overtake swinging at high skill
+  the way that table claimed.
 
 **Where to go next** (not a plan, a list of what is open):
+- **Is the aimed shot worth aiming?** GDD §8 now records that swinging beats it at
+  every skill with a rifle; it only wins on ammunition spent. First thing to look at
+  the next time combat is touched.
 - Escort and deliver jobs; a hand-drawn `map.area` that can hide a letter.
 - Cover and encumbrance, so the rest of GDD §8's to-hit table has something to hang on.
 - Wire the Ecologist and Bandit unlocks to the Lab and the bandits now they exist.

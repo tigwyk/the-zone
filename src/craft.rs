@@ -126,11 +126,11 @@ fn mark(run: &mut RunState, uid: u32, roll: Roll) {
     let i = run.items.iter().position(|s| s.uid == uid).expect("held gear exists");
     if run.items[i].count > 1 {
         run.items[i].count -= 1;
+        // Anything with a count above one is bare (`is_stackable`), so the split
+        // carries no mods and no magazine with it.
         let single = loot::ItemStack {
-            uid: run.next_uid(),
-            id: run.items[i].id.clone(),
-            count: 1,
             affixes: vec![roll],
+            ..loot::ItemStack::plain(run.next_uid(), &run.items[i].id.clone(), 1)
         };
         if run.weapon == Some(uid) {
             run.weapon = Some(single.uid);

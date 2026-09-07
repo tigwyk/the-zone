@@ -23,12 +23,21 @@
     "knife": Item(name: "Hunting Knife", base: 150, kind: Weapon(dice: (1, 8), skill: Melee)),
     "machete": Item(name: "Machete", base: 320, kind: Weapon(dice: (2, 6), skill: Melee)),
     "axe": Item(name: "Fire Axe", base: 480, kind: Weapon(dice: (2, 8), skill: Melee)),
-    "pistol": Item(name: "PMm Pistol", base: 900, kind: Weapon(dice: (2, 6), skill: SmallGuns)),
-    "revolver": Item(name: "Heavy Revolver", base: 1600, kind: Weapon(dice: (3, 6), skill: SmallGuns)),
-    "sawn_off": Item(name: "Sawn-off", base: 700, kind: Weapon(dice: (3, 4), skill: SmallGuns)),
-    "shotgun": Item(name: "Pump Shotgun", base: 1900, kind: Weapon(dice: (3, 8), skill: SmallGuns)),
-    "rifle": Item(name: "Abakan Rifle", base: 2600, kind: Weapon(dice: (3, 10), skill: SmallGuns)),
-    "sniper": Item(name: "Marksman Rifle", base: 5200, kind: Weapon(dice: (5, 8), skill: SmallGuns)),
+    "pistol": Item(name: "PMm Pistol", base: 900,
+                   kind: Weapon(dice: (2, 6), skill: SmallGuns, ammo: Some(Pistol), mag: 8)),
+    "revolver": Item(name: "Heavy Revolver", base: 1600,
+                     kind: Weapon(dice: (3, 6), skill: SmallGuns, ammo: Some(Pistol), mag: 6)),
+        // Two shells, then a pause. It hits harder than the pistol and shoots half as
+    // often; the bench measured 3d4 losing the first Flesh fight once it had to
+    // reload for it (GUNS §7.0).
+    "sawn_off": Item(name: "Sawn-off", base: 700,
+                     kind: Weapon(dice: (3, 6), skill: SmallGuns, ammo: Some(Shell), mag: 2)),
+    "shotgun": Item(name: "Pump Shotgun", base: 1900,
+                    kind: Weapon(dice: (3, 8), skill: SmallGuns, ammo: Some(Shell), mag: 5)),
+    "rifle": Item(name: "Abakan Rifle", base: 2600,
+                  kind: Weapon(dice: (3, 10), skill: SmallGuns, ammo: Some(Rifle), mag: 20)),
+    "sniper": Item(name: "Marksman Rifle", base: 5200,
+                   kind: Weapon(dice: (5, 8), skill: SmallGuns, ammo: Some(Rifle), mag: 10)),
 
     // ---- armour (6) ----
     "jacket": Item(name: "Leather Jacket", base: 400, kind: Armor(4)),
@@ -56,6 +65,45 @@
     // ---- deep trophies (2), which finishes forty ----
     "controller_brain": Item(name: "Controller Brain", base: 2600, kind: Misc),
     "giant_heart": Item(name: "Pseudogiant Heart", base: 5000, kind: Misc),
+
+    // ---- ammunition (9): what a gun eats (GUNS §2). pierce comes off armour
+    // before it soaks anything, which is what makes it worth its price.
+    "pistol_surplus": Item(name: "9mm Surplus", base: 4,
+                           kind: Ammo(caliber: Pistol, damage: 0, to_hit: -10, pierce: 0)),
+    "pistol_round": Item(name: "9mm Ball", base: 10,
+                         kind: Ammo(caliber: Pistol, damage: 0, to_hit: 0, pierce: 0)),
+    "pistol_ap": Item(name: "9mm Armour-Piercing", base: 25,
+                      kind: Ammo(caliber: Pistol, damage: 0, to_hit: 0, pierce: 2)),
+    "shell_birdshot": Item(name: "12g Birdshot", base: 6,
+                           kind: Ammo(caliber: Shell, damage: -1, to_hit: 5, pierce: 0)),
+    "shell_buck": Item(name: "12g Buckshot", base: 12,
+                       kind: Ammo(caliber: Shell, damage: 0, to_hit: 0, pierce: 0)),
+    "shell_slug": Item(name: "12g Slug", base: 30,
+                       kind: Ammo(caliber: Shell, damage: 2, to_hit: -5, pierce: 1)),
+    "rifle_surplus": Item(name: "5.45 Surplus", base: 6,
+                          kind: Ammo(caliber: Rifle, damage: 0, to_hit: -10, pierce: 0)),
+    "rifle_round": Item(name: "5.45 Ball", base: 14,
+                        kind: Ammo(caliber: Rifle, damage: 0, to_hit: 0, pierce: 0)),
+    "rifle_ap": Item(name: "5.45 Armour-Piercing", base: 35,
+                     kind: Ammo(caliber: Rifle, damage: 1, to_hit: 0, pierce: 3)),
+
+    // ---- mods (10): what a person did to it, at a fixed magnitude (GUNS §1) ----
+    "grip": Item(name: "Rubber Grip", base: 350, kind: Mod(effect: ToHit, value: 4, fits: Weapon)),
+    "laser": Item(name: "Laser Sight", base: 500, kind: Mod(effect: ToHit, value: 6, fits: Weapon)),
+    "scope": Item(name: "Telescopic Sight", base: 900,
+                  kind: Mod(effect: ToHit, value: 10, fits: Weapon)),
+    "bayonet": Item(name: "Bayonet", base: 300, kind: Mod(effect: Damage, value: 1, fits: Weapon)),
+    "barrel": Item(name: "Match Barrel", base: 1100,
+                   kind: Mod(effect: Damage, value: 2, fits: Weapon)),
+    "trigger": Item(name: "Tuned Trigger", base: 800,
+                    kind: Mod(effect: Crit, value: 1, fits: Weapon)),
+    "mag_well": Item(name: "Extended Magazine", base: 600,
+                     kind: Mod(effect: Mag, value: 4, fits: Weapon)),
+    "muzzle": Item(name: "Muzzle Brake", base: 1600,
+                   kind: Mod(effect: ApCost, value: -1, fits: Weapon)),
+    "plate": Item(name: "Ceramic Plate", base: 1200,
+                  kind: Mod(effect: Armor, value: 2, fits: Armor)),
+    "liner": Item(name: "Lead Liner", base: 900, kind: Mod(effect: Rads, value: -3, fits: Armor)),
 
     // ---- artifacts (12): attr 0 STR, 1 PER, 2 END, 3 CHA, 4 INT, 5 AGI, 6 LCK ----
     // Gravi family, out of the whirligigs.

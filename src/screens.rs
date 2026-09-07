@@ -1,10 +1,10 @@
 //! Modal screens and the persistent chrome: character creation, inventory, trade.
 //! Every one of these is a `build_*_grid` writing into the single `TileGrid` (SPEC §3).
 
-use crate::area::{ItemKind, VendorData, VendorStock, ZoneData, MESSAGE_ROW};
+use crate::area::{Caliber, ItemKind, VendorData, VendorStock, ZoneData, MESSAGE_ROW};
 use bevy::prelude::Color;
 use crate::render::{TileGrid, PALETTE};
-use crate::loot::{self, AffixData, Effect, ItemStack, Rarity};
+use crate::loot::{self, AffixData, Effect, Fits, ItemStack, Rarity, MOD_SLOTS};
 use crate::meta::MetaProgress;
 use crate::run::{
     check_skill, price, Outcome, Rng, RunState, Skill, ATTR_NAMES, BACKGROUNDS, BARTER,
@@ -259,6 +259,26 @@ pub(crate) fn build_inventory_grid(
                 y += 1;
             }
         }
+        // What somebody bolted to it, newest last - Backspace pulls that one first.
+        for id in &stack.mods {
+            if let Some(item) = zone.items.get(id) {
+                if let ItemKind::Mod { effect, value, .. } = item.kind {
+                    let line = format!("{} {}  ({})", plus(value), effect_word(effect), item.name);
+                    grid.text(4, y, &line, PALETTE.cyan, false);
+                    y += 1;
+                }
+            }
+        }
+        // And what is in the magazine (GUNS §3).
+        if let ItemKind::Weapon { ammo: Some(_), mag, .. } = zone.items[&stack.id].kind {
+            let capacity = (mag as i32 + loot::bonus(stack, zone, Effect::Mag)).max(1);
+            let round = match &stack.loaded_with {
+                Some(id) if stack.loaded > 0 => zone.items[id].name.as_str(),
+                _ => "empty",
+            };
+            let line = format!("Loaded  {}/{capacity}  {round}", stack.loaded);
+            grid.text(4, y, &line, PALETTE.status, false);
+        }
     }
 
     // What the artifacts are costing you, if anything.
@@ -287,21 +307,30 @@ pub(crate) fn build_inventory_grid(
     }
 
     draw_message(grid, message);
-    hint(grid, "Up/Down select   Enter use or equip   Tab/Esc back");
+    hint(grid, "Up/Down select   Enter use, equip or fit   Backspace pull a mod   Tab/Esc back");
     draw_chrome(grid, run, clock);
 }
 
 /// One roll in words: what it does and by how much.
 fn affix_line(affix: &AffixData, magnitude: i32) -> String {
-    let what = match affix.effect {
+    format!("{} {}", plus(magnitude), effect_word(affix.effect))
+}
+
+fn effect_word(effect: Effect) -> String {
+    match effect {
         Effect::Damage => "damage".to_string(),
         Effect::ToHit => "to hit".to_string(),
         Effect::Armor => "damage resistance".to_string(),
         Effect::Crit => "crit range".to_string(),
         Effect::Attr(i) => ATTR_NAMES[i].to_string(),
         Effect::Rads => "rads an hour".to_string(),
-    };
-    format!("{magnitude:+} {what}")
+        Effect::ApCost => "AP to attack".to_string(),
+        Effect::Mag => "rounds in the magazine".to_string(),
+    }
+}
+
+fn plus(n: i32) -> String {
+    format!("{n:+}")
 }
 
 /// GDD §13: what a Medicine outcome does to a med's printed amount.
@@ -381,7 +410,93 @@ pub(crate) fn use_item(zone: &ZoneData, run: &mut RunState, index: usize, rng: &
             false,
         ),
         ItemKind::Light => (format!("The {name} is on whenever you carry it."), false),
+        // Fitting is what a mod is for; it goes on what you are already using.
+        ItemKind::Mod { fits, .. } => fit_mod(zone, run, &id, fits),
+        ItemKind::Ammo { caliber, .. } => load_gun(zone, run, &id, caliber),
         ItemKind::Misc => (format!("The {name} is not much use here."), false),
+    }
+}
+
+/// Fits a mod to whatever is equipped and takes it: the weapon first, then the
+/// suit (GUNS §1). Three to an item, and never the same one twice.
+fn fit_mod(zone: &ZoneData, run: &mut RunState, id: &str, fits: Fits) -> (String, bool) {
+    let name = zone.items[id].name.clone();
+    let target = [run.weapon, run.armor]
+        .into_iter()
+        .flatten()
+        .find(|uid| run.stack(*uid).is_some_and(|s| suits(zone, s, fits)));
+    let Some(uid) = target else {
+        return (format!("There is nothing in use that the {name} goes on."), false);
+    };
+    let onto = loot::display_name(run.stack(uid).expect("just found"), zone);
+    let stack = run.stack_mut(uid).expect("just found");
+    if stack.mods.len() >= MOD_SLOTS {
+        return (format!("The {onto} has no room for another fitting."), false);
+    }
+    if stack.mods.iter().any(|m| m == id) {
+        return (format!("The {onto} already carries one."), false);
+    }
+    stack.mods.push(id.to_string());
+    run.take_item(id, 1);
+    (format!("You fit the {name} to the {onto}."), true)
+}
+
+/// Whether a mod of this `fits` belongs on this stack.
+fn suits(zone: &ZoneData, stack: &ItemStack, fits: Fits) -> bool {
+    match (fits, zone.items[&stack.id].kind) {
+        (Fits::Any, _) => true,
+        (Fits::Weapon, ItemKind::Weapon { .. }) => true,
+        (Fits::Armor, ItemKind::Armor(_)) => true,
+        _ => false,
+    }
+}
+
+/// Loads the gun in hand with this round. Free out of a fight; in one it is the
+/// four-AP rummage, which is what makes changing type mid-fight cost (GUNS §3).
+fn load_gun(zone: &ZoneData, run: &mut RunState, id: &str, caliber: Caliber) -> (String, bool) {
+    let name = zone.items[id].name.clone();
+    let held = run.weapon.and_then(|uid| run.stack(uid));
+    let takes = held.and_then(|s| match zone.items[&s.id].kind {
+        ItemKind::Weapon { ammo, .. } => ammo,
+        _ => None,
+    });
+    if takes != Some(caliber) {
+        return (format!("Nothing in your hands takes the {name}."), false);
+    }
+    // Reload prefers what is already in the gun, so put this type in first.
+    if let Some(stack) = run.weapon.and_then(|uid| run.stack_mut(uid)) {
+        if stack.loaded == 0 {
+            stack.loaded_with = Some(id.to_string());
+        }
+    }
+    let message = crate::combat::reload(run, zone);
+    let moved = !message.starts_with("It is already full");
+    (message, moved)
+}
+
+/// Pulls the last mod off the highlighted item. A Repair check decides whether it
+/// comes off whole or comes off in pieces (GUNS §1).
+pub(crate) fn pull_mod(
+    zone: &ZoneData,
+    run: &mut RunState,
+    index: usize,
+    rng: &mut Rng,
+) -> (String, bool) {
+    let Some(stack) = run.items.get(index) else {
+        return (String::new(), false);
+    };
+    let (uid, onto) = (stack.uid, loot::display_name(stack, zone));
+    let Some(id) = stack.mods.last().cloned() else {
+        return (format!("There is nothing fitted to the {onto}."), false);
+    };
+    let name = zone.items[&id].name.clone();
+    let out = check_skill(run, Skill::Repair.index(), 0, 1, rng);
+    run.stack_mut(uid).expect("just read").mods.pop();
+    if matches!(out, Outcome::Success | Outcome::CritSuccess) {
+        run.add_item(&id, 1);
+        (format!("You work the {name} free of the {onto}."), true)
+    } else {
+        (format!("The {name} comes off the {onto} in pieces."), true)
     }
 }
 
@@ -478,6 +593,10 @@ pub(crate) fn build_trade_grid(
 }
 
 /// Buys or sells one unit of the selected row. Returns the message line.
+/// Rounds change hands ten at a time. `ponytail:` a flat lot rather than a quantity
+/// prompt; add the prompt if anyone ever wants seven of something.
+const AMMO_LOT: u32 = 10;
+
 pub(crate) fn trade_one(
     zone: &ZoneData,
     stock: &mut VendorStock,
@@ -505,16 +624,25 @@ pub(crate) fn trade_one(
         return format!("{} will not trade with you.", vendor.name);
     };
 
+    let lot = match item.kind {
+        ItemKind::Ammo { .. } => AMMO_LOT.min(stack.count),
+        _ => 1,
+    };
+
     if buying {
-        if run.rubles < p {
+        let due = p * lot;
+        if run.rubles < due {
             return format!("You cannot afford the {name}.");
         }
-        run.rubles -= p;
-        // One off the shelf, with whatever is on it, and a uid of its own.
+        run.rubles -= due;
+        // Off the shelf, with whatever is on it, and a uid of its own.
         let uid = run.next_uid();
-        let bought = ItemStack { uid, count: 1, ..stack.clone() };
+        let bought = ItemStack { uid, count: lot, ..stack.clone() };
         run.add_stack(bought);
-        take_one(stock, vendor_id, sel);
+        take_n(stock, vendor_id, sel, lot);
+        if lot > 1 {
+            return format!("You buy {lot} of the {name} for {due} RU.");
+        }
         format!("You buy the {name} for {p} RU.")
     } else {
         let Some(sold) = run.take_uid(stack.uid) else {
@@ -530,12 +658,12 @@ pub(crate) fn trade_one(
     }
 }
 
-fn take_one(stock: &mut VendorStock, vendor_id: &str, index: usize) {
+fn take_n(stock: &mut VendorStock, vendor_id: &str, index: usize, n: u32) {
     let shelf = stock.0.get_mut(vendor_id).expect("vendor stock");
     if index >= shelf.len() {
         return;
     }
-    shelf[index].count -= 1;
+    shelf[index].count = shelf[index].count.saturating_sub(n);
     if shelf[index].count == 0 {
         shelf.remove(index);
     }
@@ -651,6 +779,118 @@ mod tests {
                 .collect(),
         );
         (zone, stock, RunState::roll(0, &[8, 9, 4], &mut crate::run::Rng::new(3)))
+    }
+
+    /// A pistol in hand, and the mod in the pack, ready to go on it.
+    fn with_a_pistol(zone: &ZoneData, run: &mut RunState, mod_id: &str) {
+        run.add_item("pistol", 1);
+        run.weapon = run.items.iter().find(|s| s.id == "pistol").map(|s| s.uid);
+        run.add_item(mod_id, 1);
+        let _ = zone;
+    }
+
+    fn index_of(run: &RunState, id: &str) -> usize {
+        run.items.iter().position(|s| s.id == id).expect("in the pack")
+    }
+
+    #[test]
+    fn a_mod_goes_on_what_is_in_use_and_only_three_of_them_fit() {
+        let (zone, _, mut run) = fixture();
+        with_a_pistol(&zone, &mut run, "scope");
+        let uid = run.weapon.unwrap();
+
+        let i = index_of(&run, "scope");
+        let (msg, acted) = use_item(&zone, &mut run, i, &mut Rng::new(4));
+        assert!(acted, "{msg}");
+        assert_eq!(run.stack(uid).unwrap().mods, vec!["scope".to_string()]);
+        assert_eq!(run.count_of("scope"), 0, "the mod itself is spent");
+        assert_eq!(loot::bonus(run.stack(uid).unwrap(), &zone, Effect::ToHit), 10);
+
+        // The same one twice is not twice the scope.
+        run.add_item("scope", 1);
+        let i = index_of(&run, "scope");
+        let (msg, acted) = use_item(&zone, &mut run, i, &mut Rng::new(4));
+        assert!(!acted, "{msg}");
+        assert!(msg.contains("already carries one"), "{msg}");
+
+        // Three is the limit (GUNS §1).
+        for id in ["laser", "grip", "bayonet"] {
+            run.add_item(id, 1);
+            let i = run.items.iter().position(|s| s.id == id).unwrap();
+            use_item(&zone, &mut run, i, &mut Rng::new(4));
+        }
+        assert_eq!(run.stack(uid).unwrap().mods.len(), MOD_SLOTS);
+        assert!(run.count_of("bayonet") > 0, "the fourth never went on");
+
+        // And a mod for a suit does not go on a gun.
+        run.add_item("plate", 1);
+        let i = index_of(&run, "plate");
+        let (msg, acted) = use_item(&zone, &mut run, i, &mut Rng::new(4));
+        assert!(!acted, "{msg}");
+    }
+
+    #[test]
+    fn pulling_a_mod_gets_it_back_or_breaks_it() {
+        let (zone, _, mut run) = fixture();
+        with_a_pistol(&zone, &mut run, "scope");
+        let i = index_of(&run, "scope");
+        use_item(&zone, &mut run, i, &mut Rng::new(4));
+        let uid = run.weapon.unwrap();
+        let sel = run.items.iter().position(|s| s.uid == uid).unwrap();
+
+        // A steady hand gets it off whole (GUNS §1).
+        run.skills[Skill::Repair.index()] = 100;
+        let (msg, acted) = pull_mod(&zone, &mut run, sel, &mut Rng::new(9));
+        assert!(acted, "{msg}");
+        assert!(run.stack(uid).unwrap().mods.is_empty());
+        assert_eq!(run.count_of("scope"), 1, "it went back in the pack");
+
+        // A bad one destroys it, and the weapon is unharmed either way.
+        let i = index_of(&run, "scope");
+        use_item(&zone, &mut run, i, &mut Rng::new(4));
+        run.skills[Skill::Repair.index()] = 0;
+        let (msg, _) = pull_mod(&zone, &mut run, sel, &mut Rng::new(9));
+        assert!(msg.contains("in pieces"), "{msg}");
+        assert!(run.stack(uid).unwrap().mods.is_empty());
+        assert_eq!(run.count_of("scope"), 0, "the mod is gone");
+        assert_eq!(run.count_of("pistol"), 1, "the gun is not");
+
+        // Nothing fitted, nothing to pull.
+        let (_, acted) = pull_mod(&zone, &mut run, sel, &mut Rng::new(9));
+        assert!(!acted);
+    }
+
+    #[test]
+    fn rounds_load_the_gun_in_hand_and_only_that_gun() {
+        let (zone, _, mut run) = fixture();
+        run.add_item("pistol", 1);
+        run.weapon = run.items.iter().find(|s| s.id == "pistol").map(|s| s.uid);
+        let uid = run.weapon.unwrap();
+
+        // The kit carries ten 9mm surplus, and they go in (GUNS §5).
+        let i = index_of(&run, "pistol_surplus");
+        let (msg, acted) = use_item(&zone, &mut run, i, &mut Rng::new(4));
+        assert!(acted, "{msg}");
+        assert_eq!(run.stack(uid).unwrap().loaded, 8);
+        assert_eq!(run.count_of("pistol_surplus"), 2);
+
+        // Shells do not fit a pistol, whatever else is in the pack.
+        run.add_item("shell_buck", 4);
+        let i = index_of(&run, "shell_buck");
+        let (msg, acted) = use_item(&zone, &mut run, i, &mut Rng::new(4));
+        assert!(!acted, "{msg}");
+        assert_eq!(run.count_of("shell_buck"), 4);
+    }
+
+    #[test]
+    fn ammunition_changes_hands_ten_at_a_time() {
+        let (zone, mut stock, mut run) = fixture();
+        let sel = stock.0["trader"].iter().position(|s| s.id == "pistol_round").unwrap();
+        let held = run.count_of("pistol_round");
+        let before = run.rubles;
+        let msg = trade_one(&zone, &mut stock, &mut run, "trader", true, sel);
+        assert_eq!(run.count_of("pistol_round"), held + 10, "{msg}");
+        assert!(before - run.rubles >= 10 * zone.items["pistol_round"].base);
     }
 
     #[test]

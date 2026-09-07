@@ -241,6 +241,13 @@ Only weapons and armour roll; a medkit is a medkit. Affixes work when the thing 
 equipped, which is the opposite of an artifact, and that is the trade: an artifact
 works from the pack and charges you for it.
 
+**Affixes are what the Zone did to a thing; mods are what a person did to it.** A mod
+is bought, found or looted like any other item, fitted to what you are carrying, and
+does exactly what its row says — no roll. Three fit on anything. Pulling one back off
+is a Repair check: get it wrong and the mod comes off in pieces, though the gun is
+never the worse for it. Mods do not change rarity, because a workshop is not the
+Zone: a scoped pistol is still a plain pistol that somebody looked after.
+
 **Rarity is rare.** At the Zone's edge about six things in ten come up plain and a relic
 is well under one in a hundred. Depth and luck widen the good end, but the top band
 widens slowest — a relic is meant to be a story you tell in the bar, not something the
@@ -279,8 +286,16 @@ again. Unsold player items vanish from the vendor's list at restock.
 and armour, Duty). Each vendor's markup *is* its specialty, because a doctor only
 stocks meds — they are content rows, not new code.
 
+**Ammunition** is the sink that GDD §7 always listed and nothing was behind. Rounds
+are priced singly and change hands ten at a time; a fight runs six to ten shots, so
+ball ammunition costs 60–140 ₽ against a Flesh Eye worth 400. Surplus is the poverty
+option and pays for it at −10 to hit; armour-piercing costs two and a half times ball
+and is worth it only where there is armour to pierce. The camp Trader stocks the cheap
+end, Osip stocks the rest, and the mods.
+
 **Starting kit** (every background): 600 ₽, a hunting knife, 1 medkit, 2 loaves, 5
-bolts. You arrive at base camp on day 1 at 06:00.
+bolts, and 10 rounds of 9mm surplus that are worth nothing until somebody finds a
+pistol. You arrive at base camp on day 1 at 06:00.
 
 **Rest** at a sheltered area: 8 h, 50 ₽, heals to full and clears 100 rads.
 
@@ -294,10 +309,24 @@ are listed under it.
 
 | Action | AP | Notes |
 |---|---|---|
-| Attack | 3 | to-hit = weapon skill + modifiers |
+| Attack | 3 | to-hit = weapon skill + modifiers; 2 with a muzzle brake, and never less |
 | Aimed attack | 6 | +20 to-hit, crits on ≤5 |
-| Use item | 4 | medkit, antirad |
+| Reload | 2 | 1 at Small Guns 60; fills the magazine from the pack |
+| Use item | 4 | medkit, antirad — and the only way to change ammunition mid-fight |
 | Flee | all | Sneak check, or AGI vs. the fastest thing chasing you |
+
+**Guns run out.** A gun names a caliber and a magazine, and a round leaves the
+magazine whether or not it hits anything. An empty gun offers no attack at all — you
+cannot dry-fire, and the menu simply stops offering it — so the fourth verb is
+Reload, and the turn now ends when you cannot afford the cheapest thing available
+rather than at a fixed 3 AP. Ammunition types move three things: to-hit, flat damage,
+and **pierce**, which comes off the target's armour before it soaks anything. Pierce
+is the interesting one, because armour is what stops the deep roster: buckshot is fine
+on a dog and useless on a pseudogiant.
+
+The sawn-off is where the magazine bites — two shells, then a pause — which is why it
+hits harder than the pistol for less money. That is a measured trade, not a flavour
+note: at 3d4 it lost the first Flesh fight once it had to reload for it.
 
 To-hit modifiers: night −10 without a light, rads thresholds as attribute loss.
 Damage = weapon dice − armor, and a crit doubles what got through the armor rather
@@ -314,13 +343,19 @@ the camp's hidden letter, one properly kitted, and one geared for the deep:
 
 | | knife | sawn-off | rifle + vest | marked sniper + suit |
 |---|---|---|---|---|
-| Blind Dog | 75% | 86% | 97% | 100% |
-| Flesh | 20% | 52% | 91% | 100% |
-| Bandit | 12% | 44% | 88% | 100% |
-| Zone Boar | 0% | 9% | 100% | 100% |
+| Blind Dog | 75% | 82% | 97% | 100% |
+| Flesh | 20% | 57% | 91% | 100% |
+| Bandit | 12% | 51% | 88% | 100% |
+| Zone Boar | 0% | 18% | 100% | 100% |
 | Bloodsucker | 0% | 0% | 91% | 100% |
-| Controller | 0% | 0% | 94% | 100% |
+| Controller | 0% | 0% | 93% | 100% |
 | Pseudogiant | 0% | 0% | 4% | 99% |
+
+Re-measured once guns needed feeding, because ammunition made every earlier number in
+this table a guess. Only the sawn-off column really moved, in both directions: it
+reloads for a third of its turns now, and hits hard enough to be worth it. The bench
+prints rubles of ammunition per kill beside every row, which is how the sink is kept
+honest — a kitted stalker spends about 46 ₽ shooting a Flesh worth 400.
 
 The curve is meant to read that way: a knife answers a dog and nothing else, the deep
 mutants want real gear, and the Pseudogiant on the approach wants everything you have.
@@ -331,10 +366,16 @@ choice rather than a wall.
 **Attack costs 3, and that is what makes it a decision.** At 4 an ordinary 7-AP stalker
 could afford one attack or one aimed shot and never two of anything, so aiming was
 simply better and there was nothing to choose. At 3 the turn buys two swings or one
-aimed shot, and the bench says the answer changes with skill: against a Flesh at skill
-40 swinging twice wins 83% to 74%, at 60 it is 96% to 92%, and by 85 the aimed shot
-pulls ahead 99% to 96%. Low skill wants more chances to hit; high skill wants the +20
-and the wider crit.
+aimed shot.
+
+**What the bench actually says about aiming is less flattering than this document used
+to claim.** With a rifle against a Flesh, swinging twice wins 84% to 77% at skill 40,
+89% to 82% at 60, and 91% to 86% at 85 — the aimed shot never overtakes it. The old
+99%-to-96% line was stale before ammunition existed; re-running it against the last
+commit gives the same figures as today, so nothing here broke it. What aiming does buy
+is rounds: it fires two shots to swinging's three and costs a third less in
+ammunition per kill. **Whether that is enough of a reason to aim is open**, and it is
+the first thing to look at the next time combat is touched.
 
 **What the cheaper attack costs, kept deliberately.** The cost is shared with the
 mutants, so everything in the Zone swings more often too. Two consequences, both
@@ -455,7 +496,7 @@ targets without failing the build.
 | Areas | 30 (about 10 secret) | 30, 10 of them reached only through the art |
 | Anomaly fields | 8 | 8 — two each of gravity, thermal and electric, one acid, one rift |
 | Artifacts | 12 | 12, in five families plus two nobody has named |
-| Items (weapons, armor, meds, misc) | 40 | 42 |
+| Items (weapons, armor, meds, misc) | 40 | 61 — plus 9 rounds and 10 mods on the original 42 |
 | Enemies | 6 | 7 — bandit, blind dog, flesh, boar, bloodsucker, controller, pseudogiant |
 | Vendors | 4 | 4 |
 | NPCs with dialogue | 10 | 10 |

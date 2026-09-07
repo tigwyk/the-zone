@@ -119,9 +119,11 @@ pub(crate) const BACKGROUNDS: [Background; 4] = [
 
 // Starting kit (GDD §7). A knife is the whole opening answer to the first dog
 // (GDD §8); a stalker who sells it for rubles is betting they will not need it.
+// The ten rounds are worth nothing until somebody finds a pistol (GUNS §5).
 // Rest: 8 h at a sheltered camp.
 const START_RUBLES: u32 = 600;
-const START_KIT: [(&str, u32); 4] = [("knife", 1), ("medkit", 1), ("bread", 2), ("bolt", 5)];
+const START_KIT: [(&str, u32); 5] =
+    [("knife", 1), ("medkit", 1), ("bread", 2), ("bolt", 5), ("pistol_surplus", 10)];
 const START_MINUTES: u32 = 6 * 60;
 pub(crate) const REST_MINUTES: u32 = 8 * 60;
 pub(crate) const REST_COST: u32 = 50;
@@ -246,14 +248,15 @@ impl RunState {
         self.next_uid
     }
 
-    /// Puts a rolled stack in the pack. Plain things merge with what is already
-    /// there; anything the Zone has marked stays its own object.
+    /// Puts a rolled stack in the pack. Bare things merge with what is already
+    /// there; anything the Zone has marked, or anybody has fitted or loaded, stays
+    /// its own object.
     pub fn add_stack(&mut self, stack: ItemStack) {
-        if stack.is_plain() {
+        if stack.is_stackable() {
             if let Some(slot) = self
                 .items
                 .iter_mut()
-                .find(|s| s.id == stack.id && s.is_plain())
+                .find(|s| s.id == stack.id && s.is_stackable())
             {
                 slot.count += stack.count;
                 return;
@@ -276,6 +279,10 @@ impl RunState {
         self.items.iter().find(|s| s.uid == uid)
     }
 
+    pub fn stack_mut(&mut self, uid: u32) -> Option<&mut ItemStack> {
+        self.items.iter_mut().find(|s| s.uid == uid)
+    }
+
     /// Removes `n` of `id`, plainest first, so handing a job its item does not spend
     /// the good one. Returns false and changes nothing if there are not enough.
     pub fn take_item(&mut self, id: &str, n: u32) -> bool {
@@ -284,7 +291,7 @@ impl RunState {
         }
         let mut left = n;
         let mut order: Vec<usize> = (0..self.items.len()).filter(|&i| self.items[i].id == id).collect();
-        order.sort_by_key(|&i| self.items[i].affixes.len());
+        order.sort_by_key(|&i| (!self.items[i].is_stackable(), self.items[i].affixes.len()));
         for i in order {
             if left == 0 {
                 break;
@@ -569,17 +576,13 @@ mod tests {
         // Two pistols the Zone has been at are two objects, not a stack of two.
         let uid = r.next_uid();
         r.add_stack(ItemStack {
-            uid,
-            id: "pistol".into(),
-            count: 1,
             affixes: vec![Roll { affix: "keen".into(), magnitude: 6 }],
+            ..ItemStack::plain(uid, "pistol", 1)
         });
         let uid = r.next_uid();
         r.add_stack(ItemStack {
-            uid,
-            id: "pistol".into(),
-            count: 1,
             affixes: vec![Roll { affix: "heavy".into(), magnitude: 2 }],
+            ..ItemStack::plain(uid, "pistol", 1)
         });
         assert_eq!(r.items.iter().filter(|s| s.id == "pistol").count(), 2);
 
