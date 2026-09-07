@@ -9,14 +9,12 @@ use bevy::text::LineBreak;
 
 // ---------- palette (SPEC §4) ----------
 
-// `water` is the one name nothing reaches yet: no area art uses a water class.
 pub(crate) struct Palette {
     pub dim: Color,
     pub ground: Color,
     pub pale: Color,
     pub fire: Color,
     pub smoke: Color,
-    #[allow(dead_code)] // no area art declares a water class yet
     pub water: Color,
     pub amber: Color,
     pub cyan: Color,
@@ -24,6 +22,8 @@ pub(crate) struct Palette {
     /// Presentation-only: the magenta fringe the glitch effect paints over the HUD.
     pub glitch: Color,
     pub red: Color,
+    pub blood: Color,
+    pub acid: Color,
     pub grey: Color,
     pub desc: Color,
     pub menu: Color,
@@ -54,6 +54,10 @@ pub(crate) const PALETTE: Palette = Palette {
     water: Color::srgb(0.28, 0.52, 0.72),
     // Red is damage and warning. Grey is dead.
     red: Color::srgb(1.00, 0.32, 0.26),
+    // Dried blood, distinct from the salmon `red` used for live warnings.
+    blood: Color::srgb(0.85, 0.05, 0.06),
+    // Acid: the green of something that eats the floor it sits on.
+    acid: Color::srgb(0.50, 1.00, 0.12),
     smoke: Color::srgb(0.52, 0.54, 0.52),
     grey: Color::srgb(0.46, 0.48, 0.46),
 };

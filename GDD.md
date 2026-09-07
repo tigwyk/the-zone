@@ -428,7 +428,7 @@ what they asked for three times in four.
 - Names are Zone-flavored, not copied: our own anomaly and artifact names may echo
   STALKER's but the text is ours.
 - Colors mean things: green is ground and living, amber is anomaly, cyan is artifact,
-  **bold cyan is a secret**, red is damage and warning, grey is dead. Green is the
+  **bold cyan is a secret**, red is damage and warning, blood is a kill, acid is corrosion, grey is dead. Green is the
   screen's base state and everything else is an interruption, so the accents stay rare.
 - Loot borrows the same ladder rather than inventing a palette: a plain thing is
   ordinary green, and the further the Zone has got into it the further it runs — cyan,
@@ -471,3 +471,93 @@ antenna, and a tunnel off the quarry rim gets there too for anyone who stands hi
 enough with somebody. Ten areas — the hatch, the storm drain, the farm cellar, the
 bandit container, the Lab vault, the church, the shelter, the rift, the standing yard
 and the Room — have no menu entry anywhere and are reached only by reading the art.
+
+---
+
+## 13. Crafting (M11)
+
+The Zone is a scavenger economy: you do not buy your edge, you dig it out of the dirt.
+Crafting turns what the Zone leaves behind — a flesh's eye, a boar's tusk, a dead
+man's toolkit — into the things that keep you alive, and, at the forge, lets you feed
+your gear to the anomalies so the Zone gets into it on your terms.
+
+### The bench (make and mend)
+
+A `Craft` verb on a sheltered area with a work surface. The first bench is in the hatch
+under the camp — a cramped bunker with a work table — one secret hop from where you
+wake, and its menu has the room for it (the camp's own five slots are full). The bunker
+and the Lab get their own recipe lists later; same code. The verb opens the `Crafting`
+screen, a list of recipes. A recipe takes components and makes one output, and every
+recipe is a **skill check**, because nothing in the Zone is made for free:
+
+| Roll | Outcome |
+|---|---|
+| crit success | double the output |
+| success | the output, and the skill improves (as any practised skill does) |
+| fail | the components are spent and nothing is made |
+| crit fail | nothing is made, and you take 15 rads off the bench |
+
+The skill that governs a recipe is fixed by what it makes:
+
+- **Medicine** — anything with a `Heal` or `Antirad` output (field medicine).
+- **Repair** — weapons, armour, lights and tools (jury-rigging).
+
+A recipe also carries a `difficulty` modifier (easy +20 … hard −40, like any check) and
+a `minutes` cost. Time is the other ingredient, and an emission does not wait for a
+stalker to finish tinkering.
+
+### The forge (feed the gear to the Zone)
+
+A forge recipe takes a **catalyst artifact** and bakes one specific affix into the
+weapon or armour you are holding — the thing loot only does by luck, done on purpose.
+The affix names already tell you the recipe:
+
+| Catalyst (family) | Baked affix |
+|---|---|
+| `gravi`, `moonlight` (Whirligig) | `of the Whirligig` — +STR |
+| `fireball`, `droplet` (Burner) | `of the Burner` — +Damage, weapons |
+| `flash`, `sparkler` (Electro) | `of the Arc` — +AGI |
+| `compass`, `night_star` (Rift) | `of the Rift` — +LCK |
+
+The roll is a **Science** check; the Zone does not hand this over without a price:
+
+| Roll | Outcome |
+|---|---|
+| crit success | the affix lands at full magnitude (top of its range) |
+| success | the affix lands at a rolled magnitude, and Science improves |
+| fail | the artifact is consumed and the gear is unchanged |
+| crit fail | the artifact is consumed and the gear gains the `hot` curse |
+
+Rarity needs no new rule: it is already derived from how many affix rolls a thing
+carries, so a forged item reads marked/warped/relic on its own.
+
+### Using what you make (Medicine on the pack)
+
+Medicine is not only how you make a bandage work, it is how you work a bandage. Using a
+`Heal` or `Antirad` item is a **Medicine check**:
+
+| Roll | Outcome |
+|---|---|
+| crit success | double the printed amount |
+| success | the printed amount, and Medicine improves |
+| fail | half the printed amount (minimum 1) |
+| crit fail | no effect — the item is still spent — and +10 rads off a bad jab |
+
+Healing still caps at max HP and rads never drop below 0. A high Medicine stalker gets
+more out of every med, which is what makes the skill worth tagging.
+
+### Recipes (illustrative — values are tuned and measured, never asserted)
+
+- Brew Antirad: `dog_tail` + `vodka` → `antirad` (Medicine, 1 h).
+- Flesh Poultice: `flesh_eye` + `bandage` → `stimulant` (Medicine, 30 min).
+- Boar Machete: `boar_tusk` + `bolt` → `machete` (Repair, 2 h).
+- Bloodsucker Suit: `tentacle` + `trench_coat` → `seva_suit` (Repair, 4 h).
+- Cook a Whirligig: `gravi` into held armour → `of the Whirligig` (Science, 2 h).
+
+### Guardrails
+
+- A recipe's components should cost **less than the output buys for**, so crafting beats
+  shopping — but not by so much that selling the parts beats crafting. This is measured
+  with a guard test, not asserted.
+- Parts are finite: they come off kills and out of the Zone, not off a shelf.
+- The forge risks the `hot` curse, so a relic stays a story, not a print run.

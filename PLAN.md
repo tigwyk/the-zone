@@ -23,10 +23,10 @@ game runs, ends, remembers, and tests itself.
 
 ### The shape of it
 
-Thirteen modules on Bevy 0.19.1, fully data-driven. `main.rs` (app, states, input,
+Fifteen modules on Bevy 0.19.1, fully data-driven. `main.rs` (app, states, input,
 play-throughs), `render.rs` (glyph, palette, renderer, scanlines), `area.rs` (loaders,
 scene build), `run.rs` (the stalker, checks, prices), `screens.rs` (modal screens, the
-map), `sim.rs` (the Zone acting on you), `combat.rs` (AP turns), `loot.rs`
+map), `sim.rs` (the Zone acting on you), `combat.rs` (AP turns), `craft.rs` (the bench and the forge), `liquid.rs` (floor liquids, pooling, the readout), `loot.rs`
 (rarity and affixes), `dialogue.rs` (NPCs), `quest.rs` (jobs and standing), `meta.rs`
 (what outlives a run), `audio.rs` (three cues), and `balance.rs` (the combat bench,
 test-only).
@@ -60,6 +60,11 @@ takes the turn off a weak mind.
 plain, touched, marked, warped, relic. A prefix goes in front of the name and a suffix
 after it. An item in a pack is an instance, not an id, and an equipment slot points at
 one particular pistol.
+
+**Crafting** is the same idea on your terms: a bench in the hatch turns scavenged parts
+into gear and meds on a `Repair` or `Medicine` check, and a forge cooks an artifact into
+held gear on a `Science` check — risking the `hot` curse on a crit fail. Using a med is
+itself a Medicine check (GDD §13).
 
 **The end.** Stand high enough with anyone and a tunnel opens off the quarry rim to the
 Room, which is an NPC — so its wish list is content, built out of the run by the same
@@ -115,6 +120,7 @@ native scale factor so high-DPI (Retina) displays get a readable, sharp grid.
 - **Nobody has played it.** Everything above is measured or asserted; none of it is
   felt. Pacing, whether the secrets are findable without knowing they are there, and
   whether a run is the right length are all unanswered.
+
 
 ---
 
@@ -228,7 +234,7 @@ holds several enemies at once.
 state; the rest are modal overlays that return to `Area`. M1 introduces the enum with
 just `Area` + `Inventory` to prove the overlay pattern.
 
-**Resources**, all eighteen of them, in the order `add_game` registers them:
+**Resources**, all nineteen of them, in the order `add_game` registers them:
 
 | Resource | Holds |
 |---|---|
@@ -241,6 +247,7 @@ just `Area` + `Inventory` to prove the overlay pattern.
 | `VendorStock` | live shelves, separate from `ZoneData` because trading changes them |
 | `GameClock` | when the next emission lands |
 | `Fields` | what this run knows about each anomaly field |
+| `Puddles` | what has pooled on each area's floor: water, blood, acid |
 | `Combat` | the fight in progress |
 | `Dialogue`, `Board`, `TradeUi` | which conversation, board and counter are open |
 | `Creation` | the half-made stalker on the creation screen |
@@ -441,6 +448,10 @@ numbered so SPEC can point at them.
   uids, and rolling against depth and luck.
 - [x] **M10 — The combat bench.** `balance.rs`, and the four balance bugs it found.
   Attack dropped from 4 AP to 3 on its evidence.
+- [x] **M11 — Crafting.** The bench (`Medicine`/`Repair` checks turn scavenged parts
+  into gear and meds), the forge (`Science` bakes an artifact's affix into held gear,
+  risking the `hot` curse), and Medicine on the pack (using a med is a Medicine check).
+  The bench lives in the hatch; `recipes.ron` holds the recipes.
 
 **Where to go next** (not a plan, a list of what is open):
 - Escort and deliver jobs; a hand-drawn `map.area` that can hide a letter.

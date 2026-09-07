@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 
+use crate::combat;
 use crate::area::{Action, AnomalyData, AreaData, Gate, ItemKind, VendorStock, ZoneData};
 use crate::loot::{self, Effect};
 use crate::run::{check, check_skill, Outcome, Rng, RunState, Skill, PER};
@@ -33,7 +34,8 @@ pub(crate) fn action_minutes(action: &Action) -> u32 {
         | Action::Memorial
         | Action::Lore(_)
         | Action::Give(_, _)
-        | Action::End(_) => 0,
+        | Action::End(_)
+        | Action::Craft => 0,
     }
 }
 
@@ -250,11 +252,6 @@ pub(crate) fn visible_menu<'a>(
         .collect()
 }
 
-fn roll_damage(dice: (u32, u32), rng: &mut Rng) -> i32 {
-    // ponytail: anomaly damage ignores armour — the Zone does not care what you wear.
-    (0..dice.0).map(|_| rng.roll(dice.1) as i32).sum()
-}
-
 /// Stalker Lore, assisted by PER, harder at night without a light (GDD §5, §6).
 fn scan_modifier(run: &RunState, zone: &ZoneData) -> i32 {
     // GDD §6: PER assists Stalker Lore at +2 per point above the 5 everyone starts with.
@@ -291,7 +288,7 @@ pub(crate) fn scan(
         }
         Outcome::Fail => "You cannot make sense of the ground here.".into(),
         Outcome::CritFail => {
-            let damage = roll_damage(anomaly.dice, rng);
+            let damage = combat::roll_dice(anomaly.dice, rng);
             run.hp -= damage;
             format!("You step wrong reading it. {damage} damage.")
         }
@@ -337,7 +334,7 @@ pub(crate) fn push_through(
         );
     }
     if rng.roll(100) <= anomaly.danger {
-        let damage = roll_damage(anomaly.dice, rng);
+        let damage = combat::roll_dice(anomaly.dice, rng);
         run.hp -= damage;
         (
             format!("The {} catches you. {damage} damage.", anomaly.name),

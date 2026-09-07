@@ -1,0 +1,75 @@
+// Crafting (GDD §13). A bench recipe spends `inputs` and rolls its skill to make
+// `output`; a forge recipe spends a `catalyst` artifact and bakes `affix` into the
+// held weapon or armour it fits. Inputs are worth less than the output buys for, so
+// crafting beats shopping — but never beats selling the parts.
+{
+    // ---- the bench: medicine (Medicine skill) ----
+    "brew_antirad": Recipe(
+        name: "Brew Antirad",
+        inputs: [("dog_tail", 1), ("vodka", 1)],
+        output: Some(("antirad", 1)),
+        skill: Medicine,
+        difficulty: 10,
+        minutes: 60,
+    ),
+    "stimulant_from_gland": Recipe(
+        name: "Distill a Stimulant",
+        inputs: [("dog_tail", 1), ("bandage", 1)],
+        output: Some(("stimulant", 1)),
+        skill: Medicine,
+        difficulty: 10,
+        minutes: 45,
+    ),
+    "flesh_poultice": Recipe(
+        name: "Boil a Flesh Poultice",
+        inputs: [("flesh_eye", 1), ("bandage", 1)],
+        output: Some(("army_medkit", 1)),
+        skill: Medicine,
+        difficulty: 0,
+        minutes: 60,
+    ),
+
+    // ---- the bench: jury-rigging (Repair skill) ----
+    "bloodsucker_suit": Recipe(
+        name: "Seal a Bloodsucker Suit",
+        inputs: [("tentacle", 1), ("trench_coat", 1)],
+        output: Some(("seva_suit", 1)),
+        skill: Repair,
+        difficulty: -10,
+        minutes: 240,
+    ),
+
+    // ---- the forge: bake an artifact's affix into held gear (Science skill) ----
+    "cook_whirligig": Recipe(
+        name: "Cook a Whirligig",
+        catalyst: Some("gravi"),
+        affix: Some("of_the_whirligig"),
+        skill: Science,
+        difficulty: -10,
+        minutes: 120,
+    ),
+    "cook_burner": Recipe(
+        name: "Cook a Burner",
+        catalyst: Some("fireball"),
+        affix: Some("of_the_burner"),
+        skill: Science,
+        difficulty: -10,
+        minutes: 120,
+    ),
+    "cook_arc": Recipe(
+        name: "Cook an Arc",
+        catalyst: Some("flash"),
+        affix: Some("of_the_arc"),
+        skill: Science,
+        difficulty: -10,
+        minutes: 120,
+    ),
+    "cook_rift": Recipe(
+        name: "Cook a Rift",
+        catalyst: Some("compass"),
+        affix: Some("of_the_rift"),
+        skill: Science,
+        difficulty: -10,
+        minutes: 120,
+    ),
+}

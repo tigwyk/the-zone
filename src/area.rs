@@ -8,12 +8,13 @@ use bevy::prelude::*;
 use serde::Deserialize;
 
 use crate::dialogue::NpcData;
+use crate::liquid::{draw_liquids, Liquid, Puddles};
 use crate::loot::{AffixData, ItemStack};
 use crate::meta::EndingData;
 use crate::quest::QuestData;
 use crate::render::{Glyph, TileGrid, GRID_W, PALETTE};
 use crate::run::{RunState, Skill};
-use crate::screens::{draw_chrome, draw_message};
+use crate::screens::{draw_chrome, draw_message, row};
 use crate::sim::{visible_menu, Fields, GameClock};
 
 // Fixed row map (SPEC §4): art 0–17, desc 19–20, menu 22–26, gap 27, message 28,
@@ -90,6 +91,9 @@ struct Area {
     /// `ponytail:` no roving encounters yet - a `chance` field is the upgrade path.
     #[serde(default)]
     encounter: Option<String>,
+    /// What is pooled on the floor when you arrive (SPEC §5.2): (liquid id, amount).
+    #[serde(default)]
+    liquids: Vec<(String, u32)>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -117,6 +121,8 @@ pub(crate) enum Action {
     Say(String),
     Rest,
     Trade(String),
+    /// The bench: enter the Crafting screen (GDD §13).
+    Craft,
     Scan,
     ThrowBolt,
     PushThrough,
@@ -170,6 +176,26 @@ pub(crate) enum ItemKind {
     Misc,
 }
 
+/// One thing the bench or the forge can make (GDD §13). A bench recipe spends
+/// `inputs` and rolls its skill to make `output`; a forge recipe spends a `catalyst`
+/// artifact and bakes `affix` into the held weapon or armour it fits.
+#[derive(Deserialize, Clone)]
+#[serde(rename = "Recipe")]
+pub(crate) struct RecipeData {
+    pub name: String,
+    pub skill: Skill,
+    pub difficulty: i32,
+    pub minutes: u32,
+    #[serde(default)]
+    pub inputs: Vec<(String, u32)>,
+    #[serde(default)]
+    pub output: Option<(String, u32)>,
+    #[serde(default)]
+    pub catalyst: Option<String>,
+    #[serde(default)]
+    pub affix: Option<String>,
+}
+
 #[derive(Deserialize, Clone)]
 #[serde(rename = "Vendor")]
 pub(crate) struct VendorData {
@@ -186,8 +212,6 @@ fn one() -> f32 {
     1.0
 }
 
-// name/shelter are read by later milestones (status/map, M3 emissions).
-#[allow(dead_code)]
 pub(crate) struct AreaData {
     pub name: String,
     pub shelter: bool,
@@ -199,6 +223,7 @@ pub(crate) struct AreaData {
     pub anomaly: Option<AnomalyData>,
     pub encounter: Option<String>,
     pub tier: u32,
+    pub liquids: Vec<(String, u32)>,
 }
 
 #[derive(Resource)]
@@ -214,6 +239,7 @@ pub(crate) struct ZoneData {
     pub endings: HashMap<String, EndingData>,
     pub lore: HashMap<String, LoreData>,
     pub affixes: HashMap<String, AffixData>,
+    pub recipes: HashMap<String, RecipeData>,
 }
 
 impl FromWorld for ZoneData {
@@ -270,6 +296,12 @@ pub(crate) fn load_zone(data_dir: &Path) -> ZoneData {
                 art_path.display()
             );
         }
+        for (lid, _) in &a.liquids {
+            assert!(
+                Liquid::ALL.iter().any(|l| l.id() == lid.as_str()),
+                "zone.ron: area '{id}' names unknown liquid '{lid}'"
+            );
+        }
         areas.insert(
             id,
             AreaData {
@@ -283,6 +315,7 @@ pub(crate) fn load_zone(data_dir: &Path) -> ZoneData {
                 anomaly: a.anomaly,
                 encounter: a.encounter,
                 tier: a.tier,
+                liquids: a.liquids,
             },
         );
     }
@@ -304,59 +337,46 @@ pub(crate) fn load_zone(data_dir: &Path) -> ZoneData {
         endings: read_ron(&data_dir.join("endings.ron")),
         lore: read_ron(&data_dir.join("lore.ron")),
         affixes: read_ron(&data_dir.join("affixes.ron")),
+        recipes: read_ron(&data_dir.join("recipes.ron")),
     };
     data.validate_ids();
     data
 }
 
+/// One id, in the table that has to hold it. Every check in `validate_ids` is this
+/// shape: where the mistake is, what the file says it does, and the id that is not
+/// there. Panics naming all three, which is the whole error message an author needs.
+fn must<V>(table: &HashMap<String, V>, id: &str, whose: &str, verb: &str) {
+    assert!(table.contains_key(id), "{whose} {verb} '{id}'");
+}
+
 impl ZoneData {
     /// Every id an action or a vendor names must exist (SPEC §5.3).
     fn validate_ids(&self) {
-        let check = |action: &Action, where_: &str| match action {
-            Action::Travel(dest) => assert!(
-                self.areas.contains_key(dest),
-                "zone.ron: {where_} travels to unknown area '{dest}'"
-            ),
-            Action::Trade(v) => assert!(
-                self.vendors.contains_key(v),
-                "zone.ron: {where_} trades with unknown vendor '{v}'"
-            ),
-            Action::Talk(npc) => assert!(
-                self.npcs.contains_key(npc),
-                "zone.ron: {where_} talks to unknown npc '{npc}'"
-            ),
-            Action::Jobs(f) => assert!(
-                self.factions.contains_key(f),
-                "zone.ron: {where_} opens a board for unknown faction '{f}'"
-            ),
-            Action::End(ending) => assert!(
-                self.endings.contains_key(ending),
-                "{where_} ends on unknown ending '{ending}'"
-            ),
-            Action::Lore(entry) => assert!(
-                self.lore.contains_key(entry),
-                "{where_} turns up unknown lore '{entry}'"
-            ),
-            Action::Give(item, _) => assert!(
-                self.items.contains_key(item),
-                "{where_} hands over unknown item '{item}'"
-            ),
+        let check = |action: &Action, whose: &str| match action {
+            Action::Travel(d) => must(&self.areas, d, whose, "travels to unknown area"),
+            Action::Trade(v) => must(&self.vendors, v, whose, "trades with unknown vendor"),
+            Action::Talk(n) => must(&self.npcs, n, whose, "talks to unknown npc"),
+            Action::Jobs(f) => must(&self.factions, f, whose, "opens a board for unknown faction"),
+            Action::End(e) => must(&self.endings, e, whose, "ends on unknown ending"),
+            Action::Lore(l) => must(&self.lore, l, whose, "turns up unknown lore"),
+            Action::Give(i, _) => must(&self.items, i, whose, "hands over unknown item"),
             // SPEC §8: one line, at most 78 characters, and no shouting.
             Action::Say(line) => {
                 assert!(
                     line.chars().count() <= 78,
-                    "zone.ron: {where_} says a line longer than 78 characters"
+                    "{whose} says a line longer than 78 characters"
                 );
-                assert!(!line.contains('!'), "zone.ron: {where_} shouts");
+                assert!(!line.contains('!'), "{whose} shouts");
             }
             _ => {}
         };
         for (id, area) in &self.areas {
             for (label, action) in &area.menu {
-                check(action, &format!("{id}/{label}"));
+                check(action, &format!("zone.ron: {id}/{label}"));
             }
             for (letter, secret) in &area.secrets {
-                check(&secret.action, &format!("{id}/'{letter}'"));
+                check(&secret.action, &format!("zone.ron: {id}/'{letter}'"));
             }
             // The anomaly verbs only make sense on a field; `perform` relies on it.
             let verbs = area.menu.iter().map(|(_, a)| a).chain(area.secrets.values().map(|s| &s.action));
@@ -371,103 +391,86 @@ impl ZoneData {
                     );
                 }
             }
-            if let Some(anomaly) = &area.anomaly {
-                assert!(
-                    self.items.contains_key(&anomaly.artifact),
-                    "zone.ron: field '{id}' hides unknown artifact '{}'",
-                    anomaly.artifact
-                );
-                assert!(
-                    self.areas.contains_key(&anomaly.beyond),
-                    "zone.ron: field '{id}' leads to unknown area '{}'",
-                    anomaly.beyond
-                );
+            let whose = format!("zone.ron: field '{id}'");
+            if let Some(a) = &area.anomaly {
+                must(&self.items, &a.artifact, &whose, "hides unknown artifact");
+                must(&self.areas, &a.beyond, &whose, "leads to unknown area");
             }
-        }
-        for (id, area) in &self.areas {
+            let whose = format!("zone.ron: area '{id}'");
             if let Some(enemy) = &area.encounter {
-                assert!(
-                    self.enemies.contains_key(enemy),
-                    "zone.ron: area '{id}' is home to unknown enemy '{enemy}'"
-                );
+                must(&self.enemies, enemy, &whose, "is home to unknown enemy");
             }
         }
         for (id, e) in &self.enemies {
+            let whose = format!("zone.ron: enemy '{id}'");
             for (item, _) in &e.loot {
-                assert!(
-                    self.items.contains_key(item),
-                    "zone.ron: enemy '{id}' drops unknown item '{item}'"
-                );
+                must(&self.items, item, &whose, "drops unknown item");
             }
         }
+        for (id, recipe) in &self.recipes {
+            let whose = format!("recipes.ron: '{id}'");
+            for (item, _) in &recipe.inputs {
+                must(&self.items, item, &whose, "needs unknown item");
+            }
+            if let Some((item, _)) = &recipe.output {
+                must(&self.items, item, &whose, "makes unknown item");
+            }
+            if let Some(cat) = &recipe.catalyst {
+                must(&self.items, cat, &whose, "uses unknown catalyst");
+                assert!(
+                    matches!(self.items[cat].kind, ItemKind::Artifact { .. }),
+                    "{whose} catalyst '{cat}' is not an artifact"
+                );
+            }
+            if let Some(affix) = &recipe.affix {
+                must(&self.affixes, affix, &whose, "bakes unknown affix");
+            }
+            assert!(
+                recipe.output.is_some() ^ recipe.catalyst.is_some(),
+                "{whose} is neither (or both) a bench and a forge recipe"
+            );
+        }
+
         // Everything the story files point at has to exist too (SPEC §5.3).
         for (id, npc) in &self.npcs {
-            assert!(
-                npc.nodes.contains_key(&npc.start),
-                "npcs.ron: '{id}' starts at missing node '{}'",
-                npc.start
-            );
+            let whose = format!("npcs.ron: '{id}'");
+            must(&npc.nodes, &npc.start, &whose, "starts at missing node");
             for (node_id, node) in &npc.nodes {
+                let whose = format!("npcs.ron: '{id}/{node_id}'");
                 for line in &node.options {
                     if let Some(goto) = &line.goto {
-                        assert!(
-                            npc.nodes.contains_key(goto),
-                            "npcs.ron: '{id}/{node_id}' goes to missing node '{goto}'"
-                        );
+                        must(&npc.nodes, goto, &whose, "goes to missing node");
                     }
                     if let Some(action) = &line.action {
-                        check(action, &format!("npc {id}/{node_id}"));
+                        check(action, &whose);
                     }
                 }
             }
         }
         for (id, quest) in &self.quests {
+            let whose = format!("quests.ron: '{id}'");
             if let Some(needed) = &quest.requires {
-                assert!(
-                    self.quests.contains_key(needed),
-                    "quests.ron: '{id}' follows unknown job '{needed}'"
-                );
-                assert_ne!(needed, id, "quests.ron: '{id}' requires itself");
+                must(&self.quests, needed, &whose, "follows unknown job");
+                assert_ne!(needed, id, "{whose} requires itself");
             }
-            assert!(
-                self.factions.contains_key(&quest.faction),
-                "quests.ron: '{id}' belongs to unknown faction '{}'",
-                quest.faction
-            );
+            must(&self.factions, &quest.faction, &whose, "belongs to unknown faction");
             match &quest.goal {
-                crate::quest::Goal::Have(item) => assert!(
-                    self.items.contains_key(item),
-                    "quests.ron: '{id}' wants unknown item '{item}'"
-                ),
-                crate::quest::Goal::Reach(area) => assert!(
-                    self.areas.contains_key(area),
-                    "quests.ron: '{id}' sends you to unknown area '{area}'"
-                ),
-                crate::quest::Goal::Kill(enemy) => assert!(
-                    self.enemies.contains_key(enemy),
-                    "quests.ron: '{id}' wants unknown enemy '{enemy}' dead"
-                ),
+                crate::quest::Goal::Have(i) => must(&self.items, i, &whose, "wants unknown item"),
+                crate::quest::Goal::Reach(a) => must(&self.areas, a, &whose, "sends you to unknown area"),
+                crate::quest::Goal::Kill(e) => must(&self.enemies, e, &whose, "wants dead the unknown enemy"),
             }
         }
         for (id, faction) in &self.factions {
+            let whose = format!("factions.ron: '{id}'");
             for rival in &faction.rivals {
-                assert!(
-                    self.factions.contains_key(rival),
-                    "factions.ron: '{id}' hates unknown faction '{rival}'"
-                );
+                must(&self.factions, rival, &whose, "hates unknown faction");
             }
         }
         for (id, v) in &self.vendors {
-            assert!(
-                self.factions.contains_key(&v.faction),
-                "vendors.ron: '{id}' belongs to unknown faction '{}'",
-                v.faction
-            );
+            let whose = format!("vendors.ron: '{id}'");
+            must(&self.factions, &v.faction, &whose, "belongs to unknown faction");
             for (item, _) in &v.stock {
-                assert!(
-                    self.items.contains_key(item),
-                    "zone.ron: vendor '{id}' stocks unknown item '{item}'"
-                );
+                must(&self.items, item, &whose, "stocks unknown item");
             }
         }
     }
@@ -589,6 +592,7 @@ pub(crate) fn build_area_grid(
     run: &RunState,
     clock: &GameClock,
     fields: &Fields,
+    puddles: &Puddles,
     area_id: &str,
     sel: usize,
     message: &str,
@@ -602,13 +606,12 @@ pub(crate) fn build_area_grid(
         let x = GRID_W.saturating_sub(line.chars().count()) / 2;
         grid.text(x, DESC_ROW + dy, line, PALETTE.desc, false);
     }
+    // What has pooled on the floor, named in its own colour below the description.
+    draw_liquids(grid, puddles, area_id);
 
     // Menu rows 22-26.
     for (i, (label, _)) in visible_menu(area, fields, area_id).iter().enumerate() {
-        let fg = if i == sel { PALETTE.menu_sel } else { PALETTE.menu };
-        let prefix = if i == sel { "> " } else { "  " };
-        grid.text(0, MENU_ROW + i, prefix, fg, false);
-        grid.text(2, MENU_ROW + i, label, fg, false);
+        row(grid, 0, MENU_ROW + i, i == sel, PALETTE.menu, false, label);
     }
 
     draw_message(grid, message);

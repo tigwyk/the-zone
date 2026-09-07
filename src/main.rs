@@ -5,7 +5,9 @@ mod balance;
 mod area;
 mod audio;
 mod combat;
+mod craft;
 mod dialogue;
+mod liquid;
 mod loot;
 mod meta;
 mod quest;
@@ -20,6 +22,8 @@ use bevy::window::{PresentMode, WindowResolution};
 
 use area::{build_area_grid, Action, VendorStock, ZoneData};
 use combat::{build_combat_grid, Combat};
+use craft::{build_craft_grid, craft, craft_available, sorted_recipes};
+use liquid::{spill, Liquid, Puddles};
 use dialogue::{build_dialogue_grid, Dialogue};
 use meta::{build_memorial_grid, MetaProgress, SaveDir};
 use quest::{build_board_grid, build_journal_grid, Board};
@@ -76,6 +80,7 @@ enum GameState {
     Area,
     Inventory,
     Trade,
+    Crafting,
     Combat,
     Dialogue,
     Jobs,
@@ -131,6 +136,7 @@ fn add_game(app: &mut App) -> &mut App {
         .init_resource::<TradeUi>()
         .init_resource::<GameClock>()
         .init_resource::<Fields>()
+        .init_resource::<Puddles>()
         .init_resource::<Combat>()
         .init_resource::<Dialogue>()
         .init_resource::<Board>()
@@ -144,6 +150,7 @@ fn add_game(app: &mut App) -> &mut App {
         .add_systems(OnEnter(GameState::Area), redraw_area)
         .add_systems(OnEnter(GameState::Inventory), enter_inventory)
         .add_systems(OnEnter(GameState::Trade), enter_trade)
+        .add_systems(OnEnter(GameState::Crafting), enter_craft)
         .add_systems(OnEnter(GameState::Combat), redraw_combat)
         .add_systems(OnEnter(GameState::Dialogue), redraw_dialogue)
         .add_systems(OnEnter(GameState::Jobs), redraw_board)
@@ -158,6 +165,7 @@ fn add_game(app: &mut App) -> &mut App {
                 menu_input.run_if(in_state(GameState::Area)),
                 inventory_input.run_if(in_state(GameState::Inventory)),
                 trade_input.run_if(in_state(GameState::Trade)),
+                craft_input.run_if(in_state(GameState::Crafting)),
                 combat_input.run_if(in_state(GameState::Combat)),
                 dialogue_input.run_if(in_state(GameState::Dialogue)),
                 board_input.run_if(in_state(GameState::Jobs)),
@@ -238,6 +246,7 @@ fn begin(
     mut clock: ResMut<GameClock>,
     mut fields: ResMut<Fields>,
     mut stock: ResMut<VendorStock>,
+    mut puddles: ResMut<Puddles>,
     mut rng: ResMut<Rng>,
     mut message: ResMut<MessageLine>,
     mut next_state: ResMut<NextState<GameState>>,
@@ -251,6 +260,7 @@ fn begin(
         *clock = save.clock;
         fields.0 = save.fields;
         stock.0 = save.stock;
+        puddles.0 = save.puddles;
         *rng = save.rng;
         message.0 = "You pick up where you put it down.".into();
         next_state.set(GameState::Area);
@@ -262,32 +272,18 @@ fn begin(
 fn creation_input(
     keys: Res<ButtonInput<KeyCode>>,
     mut c: ResMut<Creation>,
-    mut run: ResMut<RunState>,
     mut grid: ResMut<TileGrid>,
-    mut message: ResMut<MessageLine>,
-    mut clock: ResMut<GameClock>,
-    mut rng: ResMut<Rng>,
-    zone: Res<ZoneData>,
-    area: Res<CurrentArea>,
-    meta: Res<MetaProgress>,
+    mut act: Act,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
     let n = if c.phase == 0 { BACKGROUNDS.len() } else { SKILL_NAMES.len() };
-    let mut changed = false;
+    let mut changed = arrows(&keys, &mut c.sel, n);
 
-    if keys.just_pressed(KeyCode::ArrowUp) {
-        c.sel = (c.sel + n - 1) % n;
-        changed = true;
-    }
-    if keys.just_pressed(KeyCode::ArrowDown) {
-        c.sel = (c.sel + 1) % n;
-        changed = true;
-    }
     if keys.just_pressed(KeyCode::Enter) {
         if c.phase == 0 {
-            if !meta.unlocked(c.sel) {
-                message.0 = "Nobody with that history has come back yet.".into();
-                build_creation_grid(&mut grid, &meta, c.phase, c.sel, c.background, &c.tags, &message.0);
+            if !act.meta.unlocked(c.sel) {
+                act.message.0 = "Nobody with that history has come back yet.".into();
+                build_creation_grid(&mut grid, &act.meta, c.phase, c.sel, c.background, &c.tags, &act.message.0);
                 return;
             }
             c.background = c.sel;
@@ -299,16 +295,17 @@ fn creation_input(
             let sel = c.sel;
             c.tags.push(sel);
             if c.tags.len() == TAG_COUNT {
-                *run = RunState::roll(c.background, &c.tags, &mut rng);
+                *act.run = RunState::roll(c.background, &c.tags, &mut act.rng);
                 // A quarter of the last stalker's standing came with you (GDD §10).
-                for (faction, carried) in &meta.rep {
-                    let now = run.rep_of(faction);
-                    run.rep.insert(faction.clone(), (now + carried).clamp(-100, 100));
+                for (faction, carried) in &act.meta.rep {
+                    let now = act.run.rep_of(faction);
+                    act.run.rep.insert(faction.clone(), (now + carried).clamp(-100, 100));
                 }
-                clock.schedule(&run, &mut rng);
-                reveal_secrets(&area.0, &mut run, &zone, &mut rng);
-                run.discovered.insert(area.0.clone());
-                message.0 = "You sign the ledger and walk in.".into();
+                let here = act.area.0.clone();
+                act.clock.schedule(&act.run, &mut act.rng);
+                reveal_secrets(&here, &mut act.run, &act.zone, &mut act.rng);
+                act.run.discovered.insert(here);
+                act.message.0 = "You sign the ledger and walk in.".into();
                 next_state.set(GameState::Area);
                 return;
             }
@@ -317,7 +314,7 @@ fn creation_input(
     }
 
     if changed {
-        build_creation_grid(&mut grid, &meta, c.phase, c.sel, c.background, &c.tags, &message.0);
+        build_creation_grid(&mut grid, &act.meta, c.phase, c.sel, c.background, &c.tags, &act.message.0);
     }
 }
 
@@ -329,11 +326,81 @@ fn redraw_area(
     run: Res<RunState>,
     clock: Res<GameClock>,
     fields: Res<Fields>,
+    puddles: Res<Puddles>,
     area: Res<CurrentArea>,
     sel: Res<MenuSelection>,
     message: Res<MessageLine>,
 ) {
-    build_area_grid(&mut grid, &zone, &run, &clock, &fields, &area.0, sel.0, &message.0);
+    build_area_grid(&mut grid, &zone, &run, &clock, &fields, &puddles, &area.0, sel.0, &message.0);
+}
+
+fn enter_craft(
+    mut cursor: ResMut<Cursor>,
+    mut grid: ResMut<TileGrid>,
+    zone: Res<ZoneData>,
+    run: Res<RunState>,
+    clock: Res<GameClock>,
+    message: Res<MessageLine>,
+) {
+    cursor.0 = 0;
+    build_craft_grid(&mut grid, &zone, &run, &clock, cursor.0, &message.0);
+}
+
+fn craft_input(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut cursor: ResMut<Cursor>,
+    mut grid: ResMut<TileGrid>,
+    mut act: Act,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    if keys.just_pressed(KeyCode::Escape) {
+        act.message.0.clear();
+        next_state.set(GameState::Area);
+        return;
+    }
+
+    let list = sorted_recipes(&act.zone);
+    let n = list.len();
+    let mut changed = arrows(&keys, &mut cursor.0, n);
+    if n > 0 {
+        if keys.just_pressed(KeyCode::Enter) {
+            let recipe = list[cursor.0.min(n - 1)];
+            let here = act.area.0.clone();
+            match craft_available(&act.zone, &act.run, recipe) {
+                Some(reason) => act.message.0 = format!("You cannot. {reason}."),
+                None => {
+                    act.message.0 = craft(recipe, &mut act.run, &act.zone, &mut act.rng);
+                    // The bench costs time, and an emission does not wait for it.
+                    let tail = advance(
+                        recipe.minutes,
+                        &here,
+                        &mut act.run,
+                        &act.zone,
+                        &mut act.clock,
+                        &mut act.fields,
+                        &mut act.stock,
+                        &mut act.rng,
+                    );
+                    if !tail.is_empty() {
+                        act.message.0 = format!("{} {tail}", act.message.0);
+                    }
+                }
+            }
+            changed = true;
+        }
+    }
+
+    if check_death(&mut act.run) {
+        let cause = act.run.death.clone().unwrap_or_default();
+        let message = act.message.0.clone();
+        meta::bank(&mut act.meta, &act.run, &act.dir, &cause, &message);
+        next_state.set(GameState::GameOver);
+        return;
+    }
+
+    if changed {
+        build_craft_grid(&mut grid, &act.zone, &act.run, &act.clock, cursor.0, &act.message.0);
+    }
 }
 
 fn enter_inventory(
@@ -380,6 +447,7 @@ struct Act<'w> {
     run: ResMut<'w, RunState>,
     clock: ResMut<'w, GameClock>,
     fields: ResMut<'w, Fields>,
+    puddles: ResMut<'w, Puddles>,
     stock: ResMut<'w, VendorStock>,
     rng: ResMut<'w, Rng>,
     trade_ui: ResMut<'w, TradeUi>,
@@ -420,6 +488,7 @@ fn menu_input(
             &act.clock,
             &act.fields,
             &act.stock,
+            &act.puddles,
             &act.rng,
         );
         if saved {
@@ -436,16 +505,8 @@ fn menu_input(
         .map(|(_, a)| a.clone())
         .collect();
     let n = menu.len();
-    let mut changed = false;
+    let mut changed = arrows(&keys, &mut sel.0, n);
 
-    if keys.just_pressed(KeyCode::ArrowUp) {
-        sel.0 = (sel.0 + n - 1) % n;
-        changed = true;
-    }
-    if keys.just_pressed(KeyCode::ArrowDown) {
-        sel.0 = (sel.0 + 1) % n;
-        changed = true;
-    }
     if keys.just_pressed(KeyCode::Enter) {
         if perform(&menu[sel.0], &mut act, &mut next_state) {
             sel.0 = 0;
@@ -477,6 +538,7 @@ fn menu_input(
             &act.run,
             &act.clock,
             &act.fields,
+            &act.puddles,
             &act.area.0,
             sel.0,
             &act.message.0,
@@ -513,6 +575,10 @@ fn perform(action: &Action, act: &mut Act, next_state: &mut NextState<GameState>
             act.trade_ui.buying = true;
             act.message.0.clear();
             next_state.set(GameState::Trade);
+        }
+        Action::Craft => {
+            act.message.0.clear();
+            next_state.set(GameState::Crafting);
         }
         Action::SetFlag(flag) => {
             act.run.flags.insert(flag.clone());
@@ -672,14 +738,7 @@ fn redraw_combat(
 fn combat_input(
     keys: Res<ButtonInput<KeyCode>>,
     mut grid: ResMut<TileGrid>,
-    mut combat: ResMut<Combat>,
-    mut run: ResMut<RunState>,
-    mut message: ResMut<MessageLine>,
-    mut rng: ResMut<Rng>,
-    zone: Res<ZoneData>,
-    clock: Res<GameClock>,
-    fields: Res<Fields>,
-    area: Res<CurrentArea>,
+    mut act: Act,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
     // SPEC §6: no Esc out of a fight. Tab still reaches the pack, at 4 AP an item.
@@ -688,47 +747,48 @@ fn combat_input(
         return;
     }
 
-    let menu = combat::menu(&combat);
+    let menu = combat::menu(&act.combat);
     let n = menu.len();
-    let mut changed = false;
+    let mut changed = arrows(&keys, &mut act.combat.sel, n);
 
-    if keys.just_pressed(KeyCode::ArrowUp) {
-        combat.sel = (combat.sel + n - 1) % n;
-        changed = true;
-    }
-    if keys.just_pressed(KeyCode::ArrowDown) {
-        combat.sel = (combat.sel + 1) % n;
-        changed = true;
-    }
     if keys.just_pressed(KeyCode::Enter) {
-        let verb = menu[combat.sel.min(n - 1)].1;
-        message.0 = combat::act(verb, &mut combat, &mut run, &zone, &mut rng);
+        let verb = menu[act.combat.sel.min(n - 1)].1;
+        act.message.0 =
+            combat::act(verb, &mut act.combat, &mut act.run, &act.zone, &mut act.rng);
+        // A kill stays behind: the enemy's blood pools on the floor it died on.
+        if !act.combat.active && act.combat.hp <= 0 {
+            let (here, blood) = (
+                act.area.0.clone(),
+                act.zone.enemies[&act.combat.enemy].hp as u32,
+            );
+            spill(&mut act.puddles, &here, Liquid::Blood, blood);
+        }
         changed = true;
     }
 
     if !changed {
         return;
     }
-    if check_death(&mut run) {
+    if check_death(&mut act.run) {
         next_state.set(GameState::GameOver);
         return;
     }
-    if !combat.active {
+    if !act.combat.active {
         next_state.set(GameState::Area);
         return;
     }
     // The menu shrinks as the AP runs low; keep the cursor on something real.
-    let n = combat::menu(&combat).len();
-    combat.sel = combat.sel.min(n.saturating_sub(1));
+    let n = combat::menu(&act.combat).len();
+    act.combat.sel = act.combat.sel.min(n.saturating_sub(1));
     build_combat_grid(
         &mut grid,
-        &zone,
-        &run,
-        &clock,
-        &fields,
-        &combat,
-        &area.0,
-        &message.0,
+        &act.zone,
+        &act.run,
+        &act.clock,
+        &act.fields,
+        &act.combat,
+        &act.area.0,
+        &act.message.0,
     );
 }
 
@@ -758,15 +818,7 @@ fn dialogue_input(
     }
 
     let n = dialogue::options(&act.dialogue, &act.zone).len();
-    let mut changed = false;
-    if keys.just_pressed(KeyCode::ArrowUp) {
-        act.dialogue.sel = (act.dialogue.sel + n - 1) % n;
-        changed = true;
-    }
-    if keys.just_pressed(KeyCode::ArrowDown) {
-        act.dialogue.sel = (act.dialogue.sel + 1) % n;
-        changed = true;
-    }
+    let mut changed = arrows(&keys, &mut act.dialogue.sel, n);
     if keys.just_pressed(KeyCode::Enter) {
         let taken = dialogue::take(&mut act.dialogue, &act.run, &act.zone);
         act.message.0 = taken.message;
@@ -806,42 +858,30 @@ fn redraw_board(
 fn board_input(
     keys: Res<ButtonInput<KeyCode>>,
     mut grid: ResMut<TileGrid>,
-    mut board: ResMut<Board>,
-    mut run: ResMut<RunState>,
-    mut message: ResMut<MessageLine>,
-    zone: Res<ZoneData>,
-    clock: Res<GameClock>,
+    mut act: Act,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
     if keys.just_pressed(KeyCode::Escape) {
-        message.0.clear();
+        act.message.0.clear();
         next_state.set(GameState::Area);
         return;
     }
 
-    let offered = quest::offered(&zone, &run, &board.faction);
+    let offered = quest::offered(&act.zone, &act.run, &act.board.faction);
     let n = offered.len();
-    let mut changed = false;
+    let mut changed = arrows(&keys, &mut act.board.sel, n);
     if n > 0 {
-        if keys.just_pressed(KeyCode::ArrowUp) {
-            board.sel = (board.sel + n - 1) % n;
-            changed = true;
-        }
-        if keys.just_pressed(KeyCode::ArrowDown) {
-            board.sel = (board.sel + 1) % n;
-            changed = true;
-        }
         if keys.just_pressed(KeyCode::Enter) {
-            let id = offered[board.sel.min(n - 1)].to_string();
-            message.0 = format!("You take the job: {}.", zone.quests[&id].name);
-            run.quests_taken.insert(id);
-            board.sel = 0;
+            let id = offered[act.board.sel.min(n - 1)].to_string();
+            act.message.0 = format!("You take the job: {}.", act.zone.quests[&id].name);
+            act.run.quests_taken.insert(id);
+            act.board.sel = 0;
             changed = true;
         }
     }
 
     if changed {
-        build_board_grid(&mut grid, &zone, &run, &clock, &board, &message.0);
+        build_board_grid(&mut grid, &act.zone, &act.run, &act.clock, &act.board, &act.message.0);
     }
 }
 
@@ -877,15 +917,7 @@ fn map_input(
 
     let known = known_areas(&act.zone, &act.run);
     let n = known.len();
-    let mut changed = false;
-    if keys.just_pressed(KeyCode::ArrowUp) {
-        cursor.0 = (cursor.0 + n - 1) % n;
-        changed = true;
-    }
-    if keys.just_pressed(KeyCode::ArrowDown) {
-        cursor.0 = (cursor.0 + 1) % n;
-        changed = true;
-    }
+    let mut changed = arrows(&keys, &mut cursor.0, n);
     if keys.just_pressed(KeyCode::Enter) {
         let here = act.area.0.clone();
         let dest = known[cursor.0.min(n - 1)].clone();
@@ -947,18 +979,7 @@ fn journal_input(
     }
 
     let n = quest::journal_entries(&zone, &run).len();
-    let mut changed = false;
-    if n > 0 {
-        if keys.just_pressed(KeyCode::ArrowUp) {
-            cursor.0 = (cursor.0 + n - 1) % n;
-            changed = true;
-        }
-        if keys.just_pressed(KeyCode::ArrowDown) {
-            cursor.0 = (cursor.0 + 1) % n;
-            changed = true;
-        }
-    }
-    if changed {
+    if arrows(&keys, &mut cursor.0, n) {
         build_journal_grid(&mut grid, &zone, &run, &clock, cursor.0, &message.0);
     }
 }
@@ -988,18 +1009,7 @@ fn memorial_input(
     }
 
     let n = meta.memorial.len();
-    let mut changed = false;
-    if n > 0 {
-        if keys.just_pressed(KeyCode::ArrowUp) {
-            cursor.0 = (cursor.0 + n - 1) % n;
-            changed = true;
-        }
-        if keys.just_pressed(KeyCode::ArrowDown) {
-            cursor.0 = (cursor.0 + 1) % n;
-            changed = true;
-        }
-    }
-    if changed {
+    if arrows(&keys, &mut cursor.0, n) {
         build_memorial_grid(&mut grid, &meta, cursor.0, &message.0);
     }
 }
@@ -1009,47 +1019,36 @@ fn memorial_input(
 fn inventory_input(
     keys: Res<ButtonInput<KeyCode>>,
     mut cursor: ResMut<Cursor>,
-    mut run: ResMut<RunState>,
-    mut message: ResMut<MessageLine>,
     mut grid: ResMut<TileGrid>,
-    mut combat: ResMut<Combat>,
-    mut rng: ResMut<Rng>,
-    zone: Res<ZoneData>,
-    clock: Res<GameClock>,
+    mut act: Act,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
-    let back = if combat.active { GameState::Combat } else { GameState::Area };
+    let back = if act.combat.active { GameState::Combat } else { GameState::Area };
     if keys.just_pressed(KeyCode::Escape) || keys.just_pressed(KeyCode::Tab) {
-        if !combat.active {
-            message.0.clear();
+        if !act.combat.active {
+            act.message.0.clear();
         }
         next_state.set(back);
         return;
     }
 
-    let n = run.items.len();
-    let mut changed = false;
+    let n = act.run.items.len();
+    let mut changed = arrows(&keys, &mut cursor.0, n);
     if n > 0 {
-        if keys.just_pressed(KeyCode::ArrowUp) {
-            cursor.0 = (cursor.0 + n - 1) % n;
-            changed = true;
-        }
-        if keys.just_pressed(KeyCode::ArrowDown) {
-            cursor.0 = (cursor.0 + 1) % n;
-            changed = true;
-        }
         if keys.just_pressed(KeyCode::Enter) {
             // GDD §8: rummaging in a fight costs 4 AP, and may hand the turn over.
-            if combat.active && combat.ap < combat::AP_ITEM {
-                message.0 = "No AP left for that.".into();
+            if act.combat.active && act.combat.ap < combat::AP_ITEM {
+                act.message.0 = "No AP left for that.".into();
             } else {
-                let (msg, acted) = use_item(&zone, &mut run, cursor.0);
-                message.0 = msg;
-                cursor.0 = cursor.0.min(run.items.len().saturating_sub(1));
-                if combat.active && acted {
-                    combat.ap -= combat::AP_ITEM;
-                    if let Some(theirs) = combat::end_turn(&mut combat, &mut run, &zone, &mut rng) {
-                        message.0 = format!("{} {theirs}", message.0);
+                let (msg, acted) = use_item(&act.zone, &mut act.run, cursor.0, &mut act.rng);
+                act.message.0 = msg;
+                cursor.0 = cursor.0.min(act.run.items.len().saturating_sub(1));
+                if act.combat.active && acted {
+                    act.combat.ap -= combat::AP_ITEM;
+                    let theirs =
+                        combat::end_turn(&mut act.combat, &mut act.run, &act.zone, &mut act.rng);
+                    if let Some(theirs) = theirs {
+                        act.message.0 = format!("{} {theirs}", act.message.0);
                     }
                 }
             }
@@ -1058,7 +1057,7 @@ fn inventory_input(
     }
 
     if changed {
-        build_inventory_grid(&mut grid, &zone, &run, &clock, cursor.0, &message.0);
+        build_inventory_grid(&mut grid, &act.zone, &act.run, &act.clock, cursor.0, &act.message.0);
     }
 }
 
@@ -1067,53 +1066,42 @@ fn inventory_input(
 fn trade_input(
     keys: Res<ButtonInput<KeyCode>>,
     mut cursor: ResMut<Cursor>,
-    mut run: ResMut<RunState>,
-    mut stock: ResMut<VendorStock>,
-    mut message: ResMut<MessageLine>,
     mut grid: ResMut<TileGrid>,
-    mut trade_ui: ResMut<TradeUi>,
-    zone: Res<ZoneData>,
-    clock: Res<GameClock>,
+    mut act: Act,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
     if keys.just_pressed(KeyCode::Escape) {
-        message.0.clear();
+        act.message.0.clear();
         next_state.set(GameState::Area);
         return;
     }
 
     let mut changed = false;
-    if keys.just_pressed(KeyCode::ArrowLeft) && !trade_ui.buying {
-        trade_ui.buying = true;
+    if keys.just_pressed(KeyCode::ArrowLeft) && !act.trade_ui.buying {
+        act.trade_ui.buying = true;
         cursor.0 = 0;
         changed = true;
     }
-    if keys.just_pressed(KeyCode::ArrowRight) && trade_ui.buying {
-        trade_ui.buying = false;
+    if keys.just_pressed(KeyCode::ArrowRight) && act.trade_ui.buying {
+        act.trade_ui.buying = false;
         cursor.0 = 0;
         changed = true;
     }
 
-    let n = trade_list(&stock, &run, &trade_ui.vendor, trade_ui.buying).len();
+    let (vendor, buying) = (act.trade_ui.vendor.clone(), act.trade_ui.buying);
+    let n = trade_list(&act.stock, &act.run, &vendor, buying).len();
+    changed |= arrows(&keys, &mut cursor.0, n);
     if n > 0 {
-        if keys.just_pressed(KeyCode::ArrowUp) {
-            cursor.0 = (cursor.0 + n - 1) % n;
-            changed = true;
-        }
-        if keys.just_pressed(KeyCode::ArrowDown) {
-            cursor.0 = (cursor.0 + 1) % n;
-            changed = true;
-        }
         if keys.just_pressed(KeyCode::Enter) {
-            message.0 = trade_one(
-                &zone,
-                &mut stock,
-                &mut run,
-                &trade_ui.vendor,
-                trade_ui.buying,
+            act.message.0 = trade_one(
+                &act.zone,
+                &mut act.stock,
+                &mut act.run,
+                &vendor,
+                buying,
                 cursor.0,
             );
-            let n = trade_list(&stock, &run, &trade_ui.vendor, trade_ui.buying).len();
+            let n = trade_list(&act.stock, &act.run, &vendor, buying).len();
             cursor.0 = cursor.0.min(n.saturating_sub(1));
             changed = true;
         }
@@ -1122,14 +1110,14 @@ fn trade_input(
     if changed {
         build_trade_grid(
             &mut grid,
-            &zone,
-            &stock,
-            &run,
-            &clock,
-            &trade_ui.vendor,
-            trade_ui.buying,
+            &act.zone,
+            &act.stock,
+            &act.run,
+            &act.clock,
+            &vendor,
+            buying,
             cursor.0,
-            &message.0,
+            &act.message.0,
         );
     }
 }
@@ -1145,6 +1133,25 @@ fn gameover_input(keys: Res<ButtonInput<KeyCode>>, mut exit: MessageWriter<AppEx
     if keys.just_pressed(KeyCode::Escape) {
         exit.write(AppExit::Success);
     }
+}
+
+/// Up/down through a list of `n` entries, wrapping at both ends. Returns true if
+/// the cursor moved, which is every screen's cue to redraw. An empty list never
+/// moves, so no caller has to guard the modulo.
+fn arrows(keys: &ButtonInput<KeyCode>, sel: &mut usize, n: usize) -> bool {
+    if n == 0 {
+        return false;
+    }
+    let step = match (
+        keys.just_pressed(KeyCode::ArrowUp),
+        keys.just_pressed(KeyCode::ArrowDown),
+    ) {
+        (true, false) => n - 1,
+        (false, true) => 1,
+        _ => return false,
+    };
+    *sel = (*sel + step) % n;
+    true
 }
 
 fn pressed_letter(keys: &ButtonInput<KeyCode>) -> Option<char> {
@@ -1491,6 +1498,63 @@ mod playthrough {
         sim.fight();
         assert_eq!(sim.state(), GameState::Area);
         assert!(!sim.combat().active);
+    }
+
+    #[test]
+    fn a_kill_leaves_blood_pooled_on_the_floor() {
+        let mut sim = Sim::new();
+        sim.roll_a_stalker();
+        sim.arm_with("rifle");
+        sim.walk_to_the_rim(); // the Flesh
+        assert_eq!(sim.state(), GameState::Combat);
+        sim.fight();
+        assert_eq!(sim.state(), GameState::Area);
+
+        // The Flesh carried 26 hit points; that much blood pools on the quarry floor.
+        sim.assert_shows("A pool of blood");
+    }
+
+    #[test]
+    fn the_bench_turns_parts_into_gear() {
+        let mut sim = Sim::new();
+        sim.roll_a_stalker();
+        sim.press(KeyCode::KeyD); // into the hatch, where the bench lives
+        sim.assert_shows("The bench");
+
+        sim.run_mut().add_item("dog_tail", 1);
+        sim.run_mut().add_item("vodka", 1);
+        sim.run_mut().skills[Skill::Medicine.index()] = 100;
+
+        sim.choose("The bench");
+        assert_eq!(sim.state(), GameState::Crafting);
+        sim.assert_shows("THE BENCH");
+        sim.choose_listed("Brew Antirad");
+
+        assert_eq!(sim.run().count_of("dog_tail"), 0, "the tail went in");
+        assert!(sim.run().count_of("antirad") >= 1, "the brew came out");
+    }
+
+    #[test]
+    fn the_forge_bakes_an_affix_into_held_gear_in_play() {
+        let mut sim = Sim::new();
+        sim.roll_a_stalker();
+        sim.press(KeyCode::KeyD);
+
+        {
+            let mut run = sim.run_mut();
+            run.add_item("vest", 1);
+            run.add_item("gravi", 1);
+            run.skills[Skill::Science.index()] = 100;
+            run.armor = run.items.iter().find(|s| s.id == "vest").map(|s| s.uid);
+        }
+
+        sim.choose("The bench");
+        assert_eq!(sim.state(), GameState::Crafting);
+        sim.choose_listed("Cook a Whirligig");
+
+        assert_eq!(sim.run().count_of("gravi"), 0, "the artifact went in");
+        let vest = sim.run().items.iter().find(|s| s.id == "vest").unwrap();
+        assert_eq!(vest.affixes.len(), 1, "one affix baked in, for good or ill");
     }
 
     #[test]

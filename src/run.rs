@@ -336,14 +336,11 @@ impl RunState {
 #[derive(Resource, Serialize, Deserialize, Clone)]
 pub(crate) struct Rng {
     state: u64,
-    #[allow(dead_code)] // read by the suspend file in M6 so a run can be replayed
-    pub seed: u64,
 }
 
 impl Rng {
     pub fn new(seed: u64) -> Self {
-        let seed = seed | 1;
-        Rng { state: seed, seed }
+        Rng { state: seed | 1 }
     }
 
     fn next_u64(&mut self) -> u64 {
@@ -379,14 +376,6 @@ pub(crate) enum Outcome {
     Success,
     CritSuccess,
 }
-
-// Difficulty modifiers (GDD §4); the first callers are the gated secrets in M3.
-#[allow(dead_code)]
-pub(crate) const DIFF_EASY: i32 = 20;
-#[allow(dead_code)]
-pub(crate) const DIFF_HARD: i32 = -20;
-#[allow(dead_code)]
-pub(crate) const DIFF_VERY_HARD: i32 = -40;
 
 /// The only d100 roll-under in the game.
 pub(crate) fn check(skill: i32, modifier: i32, rng: &mut Rng) -> Outcome {

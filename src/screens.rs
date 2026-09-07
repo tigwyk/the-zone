@@ -2,11 +2,13 @@
 //! Every one of these is a `build_*_grid` writing into the single `TileGrid` (SPEC §3).
 
 use crate::area::{ItemKind, VendorData, VendorStock, ZoneData, MESSAGE_ROW};
+use bevy::prelude::Color;
 use crate::render::{TileGrid, PALETTE};
 use crate::loot::{self, AffixData, Effect, ItemStack, Rarity};
 use crate::meta::MetaProgress;
 use crate::run::{
-    price, Rng, RunState, ATTR_NAMES, BACKGROUNDS, BARTER, SKILL_NAMES, TAG_COUNT,
+    check_skill, price, Outcome, Rng, RunState, Skill, ATTR_NAMES, BACKGROUNDS, BARTER,
+    SKILL_NAMES, TAG_COUNT,
 };
 use crate::sim::{artifact_rads_per_hour, attr, is_night, GameClock};
 
@@ -22,7 +24,8 @@ const BLURB_ROW: usize = 17;
 /// The right-hand column on the creation and inventory screens.
 pub(crate) const PANEL_COL: usize = 84;
 /// The last row the panel occupies. Below it, text may run the full width.
-#[allow(dead_code)] // read by the gutter guard in the playthrough tests
+/// Read by the gutter guard in the playthrough tests, and nowhere else.
+#[cfg(test)]
 pub(crate) const PANEL_LAST_ROW: usize = 15;
 
 /// Rows 30 and 32, on every in-run screen; 31 is the gap between them (SPEC §4).
@@ -111,11 +114,13 @@ pub(crate) fn wrap(text: &str, width: usize) -> Vec<String> {
     lines
 }
 
-/// One selectable list row.
-fn row(grid: &mut TileGrid, x: usize, y: usize, selected: bool, s: &str) {
-    let fg = if selected { PALETTE.menu_sel } else { PALETTE.menu };
-    grid.text(x, y, if selected { ">" } else { " " }, fg, false);
-    grid.text(x + 2, y, s, fg, false);
+/// One selectable list row: the marker in the gutter, the label at `x + 2`. `fg` is
+/// the colour when this is not the selected row; the selected row is always menu_sel.
+/// Every list in the game draws its rows through here.
+pub(crate) fn row(grid: &mut TileGrid, x: usize, y: usize, sel: bool, fg: Color, bold: bool, s: &str) {
+    let fg = if sel { PALETTE.menu_sel } else { fg };
+    grid.text(x, y, if sel { "> " } else { "  " }, fg, false);
+    grid.text(x + 2, y, s, fg, bold);
 }
 
 // ---- character creation ----
@@ -142,7 +147,7 @@ pub(crate) fn build_creation_grid(
         for (i, b) in BACKGROUNDS.iter().enumerate() {
             // A locked background still shows: it is something to go and earn.
             if meta.unlocked(i) {
-                row(grid, 0, LIST_ROW + i, i == sel, b.name);
+                row(grid, 0, LIST_ROW + i, i == sel, PALETTE.menu, false, b.name);
             } else {
                 let fg = if i == sel { PALETTE.grey } else { PALETTE.dim };
                 grid.text(0, LIST_ROW + i, if i == sel { "> " } else { "  " }, fg, false);
@@ -166,7 +171,7 @@ pub(crate) fn build_creation_grid(
         for (i, name) in SKILL_NAMES.iter().enumerate() {
             let mark = if tags.contains(&i) { "*" } else { " " };
             let label = format!("{mark} {:<16}{:>3}", name, preview.skills[i]);
-            row(grid, 0, LIST_ROW + i, i == sel, &label);
+            row(grid, 0, LIST_ROW + i, i == sel, PALETTE.menu, false, &label);
         }
         hint(grid, "Up/Down choose   Enter tag or untag   the run starts on the third tag");
     }
@@ -227,9 +232,8 @@ pub(crate) fn build_inventory_grid(
         let label = format!("{name:<68}{count}{slot}");
         // The colour is the rarity: how much of the Zone got into it.
         let rarity = stack.rarity();
-        let fg = if i == sel { PALETTE.menu_sel } else { rarity.color() };
-        grid.text(0, LIST_ROW + line_no, if i == sel { "> " } else { "  " }, fg, false);
-        grid.text(2, LIST_ROW + line_no, &label, fg, rarity >= Rarity::Warped);
+        let bold = rarity >= Rarity::Warped;
+        row(grid, 0, LIST_ROW + line_no, i == sel, rarity.color(), bold, &label);
     }
     more(grid, LIST_ROW + PACK_ROWS, &shown, run.items.len());
 
@@ -300,9 +304,29 @@ fn affix_line(affix: &AffixData, magnitude: i32) -> String {
     format!("{magnitude:+} {what}")
 }
 
+/// GDD §13: what a Medicine outcome does to a med's printed amount.
+fn med_amount(outcome: Outcome, n: i32) -> i32 {
+    match outcome {
+        Outcome::CritSuccess => n * 2,
+        Outcome::Success => n,
+        Outcome::Fail => (n / 2).max(1),
+        Outcome::CritFail => 0,
+    }
+}
+
+/// Using a med is a Medicine check (GDD §13). A crit fail jabs you: the item is still
+/// spent, it does nothing, and it costs 10 rads.
+fn med_effect(run: &mut RunState, n: i32, rng: &mut Rng) -> (i32, Outcome) {
+    let out = check_skill(run, Skill::Medicine.index(), 0, 1, rng);
+    if out == Outcome::CritFail {
+        run.rads = (run.rads + 10).min(1000);
+    }
+    (med_amount(out, n), out)
+}
+
 /// Uses or equips one item. Returns the message line, and whether anything actually
 /// happened - a medkit at full health costs no AP because it never left the pack.
-pub(crate) fn use_item(zone: &ZoneData, run: &mut RunState, index: usize) -> (String, bool) {
+pub(crate) fn use_item(zone: &ZoneData, run: &mut RunState, index: usize, rng: &mut Rng) -> (String, bool) {
     let Some(stack) = run.items.get(index).cloned() else {
         return (String::new(), false);
     };
@@ -312,22 +336,34 @@ pub(crate) fn use_item(zone: &ZoneData, run: &mut RunState, index: usize) -> (St
     let item = zone.items[&id].clone();
     match item.kind {
         ItemKind::Heal(n) => {
-            let healed = (run.max_hp - run.hp).min(n);
-            if healed == 0 {
+            let cap = run.max_hp - run.hp;
+            if cap == 0 {
                 return ("You are not hurt.".into(), false);
             }
+            let (amount, out) = med_effect(run, n, rng);
+            let healed = cap.min(amount);
             run.hp += healed;
             run.take_item(&id, 1);
-            (format!("You use the {name}. HP +{healed}."), true)
+            let msg = match out {
+                Outcome::CritFail => format!("You fumble the {name}. The needle bites. RAD +10."),
+                Outcome::Fail => format!("You use the {name} badly. HP +{healed}."),
+                _ => format!("You use the {name}. HP +{healed}."),
+            };
+            (msg, true)
         }
         ItemKind::Antirad(n) => {
             if run.rads == 0 {
                 return ("You are clean.".into(), false);
             }
-            let cleared = run.rads.min(n);
+            let (amount, out) = med_effect(run, n, rng);
+            let cleared = run.rads.min(amount);
             run.rads -= cleared;
             run.take_item(&id, 1);
-            (format!("You use the {name}. RAD -{cleared}."), true)
+            let msg = match out {
+                Outcome::CritFail => format!("You fumble the {name}. RAD +10."),
+                _ => format!("You take the {name}. RAD -{cleared}."),
+            };
+            (msg, true)
         }
         ItemKind::Weapon { .. } => {
             let off = run.weapon == Some(uid);
@@ -432,9 +468,8 @@ pub(crate) fn build_trade_grid(
         let count = if stack.count > 1 { format!("{:>3}", stack.count) } else { "   ".into() };
         let label = format!("{:<60}{count}{p:>9} RU", loot::display_name(stack, zone));
         let rarity = stack.rarity();
-        let fg = if i == sel { PALETTE.menu_sel } else { rarity.color() };
-        grid.text(0, LIST_ROW + i, if i == sel { "> " } else { "  " }, fg, false);
-        grid.text(2, LIST_ROW + i, &label, fg, rarity >= Rarity::Warped);
+        let bold = rarity >= Rarity::Warped;
+        row(grid, 0, LIST_ROW + i, i == sel, rarity.color(), bold, &label);
     }
 
     draw_message(grid, message);
@@ -548,9 +583,8 @@ pub(crate) fn build_map_grid(
         } else {
             ""
         };
-        let fg = if selected { PALETTE.menu_sel } else { PALETTE.menu };
-        grid.text(0, LIST_ROW + line_no, if selected { "> " } else { "  " }, fg, false);
-        grid.text(2, LIST_ROW + line_no, &format!("{:<24}{standing}", area.name), fg, false);
+        let label = format!("{:<24}{standing}", area.name);
+        row(grid, 0, LIST_ROW + line_no, selected, PALETTE.menu, false, &label);
 
         // The network: where this one leads, as far as you have found out.
         let onward: Vec<&str> = crate::area::exits(area)
@@ -669,11 +703,12 @@ mod tests {
 
         let clock = GameClock::default();
         let mut fields = crate::sim::Fields::default();
+        let puddles = crate::liquid::Puddles::empty();
 
         build_creation_grid(&mut grid, &MetaProgress::default(), 0, 3, 0, &[], "");
         build_creation_grid(&mut grid, &MetaProgress::default(), 1, 9, 2, &[8, 9], "");
         for id in zone.areas.keys() {
-            build_area_grid(&mut grid, &zone, &run, &clock, &fields, id, 0, "test");
+            build_area_grid(&mut grid, &zone, &run, &clock, &fields, &puddles, id, 0, "test");
         }
         // Again with the field scanned and its artifact showing, so the extra
         // menu entry and the lit-up anomaly tells are drawn at least once.
@@ -681,7 +716,7 @@ mod tests {
             "field".into(),
             crate::sim::FieldState { scanned: true, artifact: true, ..Default::default() },
         );
-        build_area_grid(&mut grid, &zone, &run, &clock, &fields, "field", 4, "test");
+        build_area_grid(&mut grid, &zone, &run, &clock, &fields, &puddles, "field", 4, "test");
         build_gameover_grid(&mut grid, &run, "test");
         build_trade_grid(&mut grid, &zone, &stock, &run, &clock, "trader", true, 0, "test");
         build_trade_grid(&mut grid, &zone, &stock, &run, &clock, "trader", false, 0, "test");
@@ -762,14 +797,23 @@ mod tests {
     }
 
     #[test]
-    fn heal_is_capped_and_consumes_the_item() {
+    fn a_med_is_a_medicine_check_and_healing_still_caps() {
         let (zone, _, mut run) = fixture();
+        run.skills[Skill::Medicine.index()] = 100;
         run.hp = run.max_hp - 2;
         let i = run.items.iter().position(|s| s.id == "medkit").unwrap();
-        let (msg, acted) = use_item(&zone, &mut run, i);
+        let (msg, acted) = use_item(&zone, &mut run, i, &mut Rng::new(7));
         assert!(acted);
-        assert_eq!(run.hp, run.max_hp);
-        assert!(msg.contains("HP +2"));
-        assert_eq!(run.count_of("medkit"), 0);
+        assert_eq!(run.count_of("medkit"), 0, "a med is spent even when fumbled");
+        assert!(run.hp <= run.max_hp && run.hp >= run.max_hp - 2, "heal caps at max: {msg}");
+    }
+
+    #[test]
+    fn medicine_tiers_map_a_printed_amount() {
+        assert_eq!(med_amount(Outcome::CritSuccess, 25), 50);
+        assert_eq!(med_amount(Outcome::Success, 25), 25);
+        assert_eq!(med_amount(Outcome::Fail, 25), 12);
+        assert_eq!(med_amount(Outcome::Fail, 1), 1, "a fail still helps a little");
+        assert_eq!(med_amount(Outcome::CritFail, 25), 0);
     }
 }

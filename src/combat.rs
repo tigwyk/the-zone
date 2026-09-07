@@ -8,7 +8,7 @@ use crate::area::{draw_art, EnemyData, ItemKind, ZoneData};
 use crate::loot::{self, Effect};
 use crate::render::{TileGrid, PALETTE};
 use crate::run::{check, check_skill, Outcome, Rng, RunState, Skill, AGI, INT, LCK, PER};
-use crate::screens::{draw_chrome, draw_message};
+use crate::screens::{draw_chrome, draw_message, row};
 use crate::sim::{attr, carrying_light, is_night, Fields, GameClock, NIGHT_PENALTY};
 
 // Fixed row map (SPEC §4), shared with the area screen.
@@ -137,7 +137,9 @@ pub(crate) fn menu(combat: &Combat) -> Vec<(String, Verb)> {
 
 // ---- resolving a turn ----
 
-fn roll_dice(dice: (u32, u32), rng: &mut Rng) -> i32 {
+/// Sum of `dice.0` dice of `dice.1` sides. Anomaly damage rolls this raw:
+/// the Zone does not care what you are wearing.
+pub(crate) fn roll_dice(dice: (u32, u32), rng: &mut Rng) -> i32 {
     (0..dice.0).map(|_| rng.roll(dice.1) as i32).sum()
 }
 
@@ -386,9 +388,7 @@ pub(crate) fn build_combat_grid(
     grid.text(0, YOU_ROW, &mine, PALETTE.status, false);
 
     for (i, (label, _)) in menu(combat).iter().enumerate() {
-        let fg = if i == combat.sel { PALETTE.menu_sel } else { PALETTE.menu };
-        grid.text(0, MENU_ROW + i, if i == combat.sel { "> " } else { "  " }, fg, false);
-        grid.text(2, MENU_ROW + i, label, fg, false);
+        row(grid, 0, MENU_ROW + i, i == combat.sel, PALETTE.menu, false, label);
     }
 
     draw_message(grid, message);

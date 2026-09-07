@@ -7,7 +7,7 @@ use serde::Deserialize;
 use crate::area::ZoneData;
 use crate::render::{TileGrid, PALETTE};
 use crate::run::RunState;
-use crate::screens::{draw_chrome, draw_message, hint, more, title, window, wrap};
+use crate::screens::{draw_chrome, draw_message, hint, more, row, title, window, wrap};
 use crate::sim::GameClock;
 
 const LIST_ROW: usize = 4;
@@ -134,9 +134,7 @@ fn list(grid: &mut TileGrid, entries: &[(String, String)], sel: usize, empty: &s
     }
     let shown = window(sel, entries.len(), ROWS);
     for (line_no, i) in shown.clone().enumerate() {
-        let fg = if i == sel { PALETTE.menu_sel } else { PALETTE.menu };
-        grid.text(0, LIST_ROW + line_no, if i == sel { "> " } else { "  " }, fg, false);
-        grid.text(2, LIST_ROW + line_no, &entries[i].0, fg, false);
+        row(grid, 0, LIST_ROW + line_no, i == sel, PALETTE.menu, false, &entries[i].0);
     }
     more(grid, LIST_ROW + ROWS, &shown, entries.len());
 
