@@ -18,7 +18,7 @@ mod sim;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use bevy::window::{PresentMode, WindowResolution};
+use bevy::window::{PresentMode, WindowCloseRequested, WindowResolution};
 
 use area::{build_area_grid, Action, VendorStock, ZoneData};
 use combat::{build_combat_grid, Combat};
@@ -144,6 +144,7 @@ fn add_game(app: &mut App) -> &mut App {
         .init_resource::<MetaProgress>()
         .init_resource::<Creation>()
         .init_resource::<TileGrid>()
+        .add_message::<WindowCloseRequested>()
         .init_state::<GameState>()
         .add_systems(Startup, begin)
         .add_systems(OnEnter(GameState::CharacterCreation), enter_creation)
@@ -173,6 +174,7 @@ fn add_game(app: &mut App) -> &mut App {
                 journal_input.run_if(in_state(GameState::Journal)),
                 memorial_input.run_if(in_state(GameState::Memorial)),
                 gameover_input.run_if(in_state(GameState::GameOver)),
+                save_on_exit,
             )
                 .in_set(GameInput),
         )
@@ -459,12 +461,43 @@ struct Act<'w> {
     dir: Res<'w, SaveDir>,
 }
 
+/// The bookmark for the run as it stands.
+fn suspend_run(act: &Act) -> bool {
+    meta::suspend(
+        &act.dir,
+        &act.run,
+        &act.area.0,
+        &act.clock,
+        &act.fields,
+        &act.stock,
+        &act.puddles,
+        &act.rng,
+    )
+}
+
+/// `ponytail:` this listens for the close request rather than `AppExit`, because the
+/// winit runner tears the app down without running another `Last` once the exit has
+/// been written - a `Last` system reading `AppExit` never fires on the X.
+fn save_on_exit(
+    mut closes: MessageReader<WindowCloseRequested>,
+    state: Res<State<GameState>>,
+    act: Act,
+) {
+    if closes.read().next().is_some()
+        && !matches!(
+            state.get(),
+            GameState::CharacterCreation | GameState::Combat | GameState::GameOver
+        )
+    {
+        suspend_run(&act);
+    }
+}
+
 fn menu_input(
     keys: Res<ButtonInput<KeyCode>>,
     mut sel: ResMut<MenuSelection>,
     mut grid: ResMut<TileGrid>,
     mut act: Act,
-    mut exit: MessageWriter<AppExit>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
     if keys.just_pressed(KeyCode::Tab) {
@@ -479,26 +512,6 @@ fn menu_input(
         next_state.set(GameState::Journal);
         return;
     }
-    if keys.just_pressed(KeyCode::F5) {
-        // GDD §10: save and quit. Not reachable from a fight, which has no way out.
-        let saved = meta::suspend(
-            &act.dir,
-            &act.run,
-            &act.area.0,
-            &act.clock,
-            &act.fields,
-            &act.stock,
-            &act.puddles,
-            &act.rng,
-        );
-        if saved {
-            exit.write(AppExit::Success);
-        } else {
-            act.message.0 = "The Zone will not let you put it down here.".into();
-        }
-        return;
-    }
-
     let here = act.area.0.clone();
     let menu: Vec<Action> = visible_menu(&act.zone.areas[here.as_str()], &act.fields, &here)
         .iter()
@@ -506,6 +519,17 @@ fn menu_input(
         .collect();
     let n = menu.len();
     let mut changed = arrows(&keys, &mut sel.0, n);
+
+    if keys.just_pressed(KeyCode::F5) {
+        // GDD §10: put the run down. Leaving by any other door writes it too
+        // (`save_on_exit`), so this is only the reassurance that it is written.
+        act.message.0 = if suspend_run(&act) {
+            "Written down. Close the window when you like.".into()
+        } else {
+            "The Zone will not let you put it down here.".into()
+        };
+        changed = true;
+    }
 
     if keys.just_pressed(KeyCode::Enter) {
         if perform(&menu[sel.0], &mut act, &mut next_state) {
@@ -1856,6 +1880,26 @@ mod playthrough {
         sim.press(KeyCode::Enter);
         assert_eq!(sim.state(), GameState::CharacterCreation, "still choosing");
         sim.assert_shows("Nobody with that history has come back yet");
+    }
+
+    #[test]
+    fn closing_the_window_puts_the_run_down_too() {
+        let saves = std::env::temp_dir().join("the-zone-test-quit");
+        let _ = std::fs::remove_dir_all(&saves);
+
+        let mut sim = Sim::reopen(saves.clone());
+        sim.roll_a_stalker();
+        sim.choose("Travel");
+        sim.run_mut().rubles = 777;
+        // No F5, just the X on the window.
+        sim.app.world_mut().write_message(WindowCloseRequested {
+            window: Entity::PLACEHOLDER,
+        });
+        sim.app.update();
+
+        let back = Sim::reopen(saves);
+        assert_eq!(back.state(), GameState::Area, "the run was still there");
+        assert_eq!(back.run().rubles, 777);
     }
 
     #[test]
