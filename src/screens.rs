@@ -123,6 +123,24 @@ pub(crate) fn row(grid: &mut TileGrid, x: usize, y: usize, sel: bool, fg: Color,
     grid.text(x + 2, y, s, fg, bold);
 }
 
+// ---- the main menu ----
+
+pub(crate) fn build_main_menu_grid(
+    grid: &mut TileGrid,
+    entries: &[&str],
+    sel: usize,
+    message: &str,
+) {
+    grid.clear();
+    title(grid, "THE ZONE");
+    grid.text(0, 2, "Nobody comes back the same.", PALETTE.desc, false);
+    for (i, entry) in entries.iter().enumerate() {
+        row(grid, 0, LIST_ROW + i, i == sel, PALETTE.menu, false, entry);
+    }
+    draw_message(grid, message);
+    hint(grid, "Up/Down choose   Enter confirm");
+}
+
 // ---- character creation ----
 
 pub(crate) fn build_creation_grid(

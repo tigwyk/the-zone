@@ -8,3 +8,10 @@ edition = "2024"
 bevy = { version = "=0.19.1", features = ["wav"] }
 ron = "0.12"
 serde = { version = "1", features = ["derive"] }
+
+# Bevy is ~340 crates of generic code, and a debug build keeps debuginfo for every
+# monomorphized instantiation of it: 5GB of rlibs and 4GB of stale .pdb files that
+# cargo never collects. Nobody steps into bevy_pbr, so the deps do without symbols.
+# Our own crate is untouched and still debuggable.
+[profile.dev.package."*"]
+debug = false

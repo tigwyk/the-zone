@@ -200,6 +200,12 @@ pub(crate) fn suspend(
     }
 }
 
+/// Whether there is a run to pick up. Looking is not reading: the main menu needs
+/// to know without spending the file.
+pub(crate) fn has_suspend(dir: &SaveDir) -> bool {
+    dir.suspend().exists()
+}
+
 /// Takes the suspended run and removes the file in the same breath, so a crash after
 /// this point costs the run rather than handing out a free reload.
 pub(crate) fn resume(dir: &SaveDir) -> Option<Suspend> {

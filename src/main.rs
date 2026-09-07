@@ -30,8 +30,8 @@ use quest::{build_board_grid, build_journal_grid, Board};
 use render::{render_grid, spawn_scanlines, toggle_scanlines, Glitch, TileGrid};
 use run::{Rng, RunState, BACKGROUNDS, REST_COST, REST_RADS, SKILL_NAMES, TAG_COUNT};
 use screens::{
-    build_creation_grid, build_gameover_grid, build_inventory_grid, build_map_grid,
-    build_trade_grid, known_areas, pull_mod, trade_list, trade_one, use_item,
+    build_creation_grid, build_gameover_grid, build_inventory_grid, build_main_menu_grid,
+    build_map_grid, build_trade_grid, known_areas, pull_mod, trade_list, trade_one, use_item,
 };
 use sim::{
     action_minutes, advance, check_death, push_through, reveal_secrets, scan, take_artifact,
@@ -76,6 +76,7 @@ struct Creation {
 #[derive(States, Default, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 enum GameState {
     #[default]
+    MainMenu,
     CharacterCreation,
     Area,
     Inventory,
@@ -147,6 +148,7 @@ fn add_game(app: &mut App) -> &mut App {
         .add_message::<WindowCloseRequested>()
         .init_state::<GameState>()
         .add_systems(Startup, begin)
+        .add_systems(OnEnter(GameState::MainMenu), enter_main_menu)
         .add_systems(OnEnter(GameState::CharacterCreation), enter_creation)
         .add_systems(OnEnter(GameState::Area), redraw_area)
         .add_systems(OnEnter(GameState::Inventory), enter_inventory)
@@ -162,6 +164,7 @@ fn add_game(app: &mut App) -> &mut App {
         .add_systems(
             Update,
             (
+                main_menu_input.run_if(in_state(GameState::MainMenu)),
                 creation_input.run_if(in_state(GameState::CharacterCreation)),
                 menu_input.run_if(in_state(GameState::Area)),
                 inventory_input.run_if(in_state(GameState::Inventory)),
@@ -237,38 +240,92 @@ fn enter_creation(
     build_creation_grid(&mut grid, &meta, c.phase, c.sel, c.background, &c.tags, &message.0);
 }
 
-/// First frame: read the memorial, and pick up a suspended run if there is one.
-/// Reading the suspend file spends it, so there is exactly one way back in (GDD §10).
-#[allow(clippy::too_many_arguments)]
+/// First frame: read the memorial and draw the main menu. Picking the run back up
+/// is the menu's job now, because reading the suspend file spends it (GDD §10).
 fn begin(
     dir: Res<SaveDir>,
     mut meta: ResMut<MetaProgress>,
-    mut run: ResMut<RunState>,
-    mut area: ResMut<CurrentArea>,
-    mut clock: ResMut<GameClock>,
-    mut fields: ResMut<Fields>,
-    mut stock: ResMut<VendorStock>,
-    mut puddles: ResMut<Puddles>,
-    mut rng: ResMut<Rng>,
-    mut message: ResMut<MessageLine>,
-    mut next_state: ResMut<NextState<GameState>>,
+    mut cursor: ResMut<Cursor>,
     grid: ResMut<TileGrid>,
-    c: Res<Creation>,
+    message: Res<MessageLine>,
 ) {
     *meta = MetaProgress::load(&dir);
-    if let Some(save) = meta::resume(&dir) {
-        *run = save.run;
-        area.0 = save.area;
-        *clock = save.clock;
-        fields.0 = save.fields;
-        stock.0 = save.stock;
-        puddles.0 = save.puddles;
-        *rng = save.rng;
-        message.0 = "You pick up where you put it down.".into();
-        next_state.set(GameState::Area);
-        return;
+    cursor.0 = 0;
+    enter_main_menu(cursor, grid, dir, message);
+}
+
+// ---- the main menu ----
+
+const CONTINUE: &str = "Continue";
+const NEW_GAME: &str = "New Game";
+const QUIT: &str = "Quit";
+
+/// Continue is only offered when there is something to continue.
+fn menu_entries(dir: &SaveDir) -> Vec<&'static str> {
+    let mut entries = Vec::new();
+    if meta::has_suspend(dir) {
+        entries.push(CONTINUE);
     }
-    enter_creation(grid, c, meta.into(), message.into());
+    entries.push(NEW_GAME);
+    entries.push(QUIT);
+    entries
+}
+
+fn enter_main_menu(
+    mut cursor: ResMut<Cursor>,
+    mut grid: ResMut<TileGrid>,
+    dir: Res<SaveDir>,
+    message: Res<MessageLine>,
+) {
+    cursor.0 = 0;
+    build_main_menu_grid(&mut grid, &menu_entries(&dir), 0, &message.0);
+}
+
+fn main_menu_input(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut cursor: ResMut<Cursor>,
+    mut grid: ResMut<TileGrid>,
+    mut act: Act,
+    mut next_state: ResMut<NextState<GameState>>,
+    mut exit: MessageWriter<AppExit>,
+) {
+    let entries = menu_entries(&act.dir);
+    let mut changed = arrows(&keys, &mut cursor.0, entries.len());
+
+    if keys.just_pressed(KeyCode::Enter) {
+        match entries[cursor.0.min(entries.len() - 1)] {
+            CONTINUE => {
+                // The file can be there and still be unreadable - an older build
+                // wrote it. That is a fresh start, not a crash.
+                if let Some(save) = meta::resume(&act.dir) {
+                    *act.run = save.run;
+                    act.area.0 = save.area;
+                    *act.clock = save.clock;
+                    act.fields.0 = save.fields;
+                    act.stock.0 = save.stock;
+                    act.puddles.0 = save.puddles;
+                    *act.rng = save.rng;
+                    act.message.0 = "You pick up where you put it down.".into();
+                    next_state.set(GameState::Area);
+                    return;
+                }
+                act.message.0 = "That run is gone. The Zone kept it.".into();
+            }
+            NEW_GAME => {
+                next_state.set(GameState::CharacterCreation);
+                return;
+            }
+            _ => {
+                exit.write(AppExit::Success);
+                return;
+            }
+        }
+        changed = true;
+    }
+
+    if changed {
+        build_main_menu_grid(&mut grid, &menu_entries(&act.dir), cursor.0, &act.message.0);
+    }
 }
 
 fn creation_input(
@@ -486,7 +543,10 @@ fn save_on_exit(
     if closes.read().next().is_some()
         && !matches!(
             state.get(),
-            GameState::CharacterCreation | GameState::Combat | GameState::GameOver
+            GameState::MainMenu
+                | GameState::CharacterCreation
+                | GameState::Combat
+                | GameState::GameOver
         )
     {
         suspend_run(&act);
@@ -1218,12 +1278,21 @@ mod playthrough {
             Sim::with_saves(&format!("run-{}", std::process::id()))
         }
 
+        /// Puts the main-menu cursor on `label` and confirms it.
+        fn main_menu(&mut self, label: &str) -> &mut Self {
+            assert_eq!(self.state(), GameState::MainMenu, "not on the menu:
+{}", self.screen());
+            self.highlight(label).press(KeyCode::Enter)
+        }
+
         /// As `new`, but on a named save directory, so a test can watch a stalker
         /// die and then check what the next one inherits. Never the player's own.
         fn with_saves(tag: &str) -> Self {
             let saves = std::env::temp_dir().join(format!("the-zone-test-{tag}"));
             let _ = std::fs::remove_dir_all(&saves);
-            Sim::reopen(saves)
+            let mut sim = Sim::reopen(saves);
+            sim.main_menu("New Game");
+            sim
         }
 
         /// Opens a fresh app over an existing save directory, the way starting the
@@ -1844,6 +1913,7 @@ mod playthrough {
         let _ = std::fs::remove_dir_all(&saves);
 
         let mut sim = Sim::reopen(saves.clone());
+        sim.main_menu("New Game");
         sim.roll_a_stalker();
         let name = sim.run().name.clone();
         sim.run_mut().rep.insert("loners".into(), 80);
@@ -1854,6 +1924,7 @@ mod playthrough {
 
         // Start the game again. The Zone remembers, at a quarter rate (GDD 10).
         let mut next = Sim::reopen(saves);
+        next.main_menu("New Game");
         assert_eq!(next.meta().memorial.len(), 1);
         assert_eq!(next.meta().rep["loners"], 20);
         next.roll_a_stalker();
@@ -1888,6 +1959,7 @@ mod playthrough {
         let _ = std::fs::remove_dir_all(&saves);
 
         let mut sim = Sim::reopen(saves.clone());
+        sim.main_menu("New Game");
         sim.roll_a_stalker();
         sim.choose("Travel");
         sim.run_mut().rubles = 777;
@@ -1897,9 +1969,37 @@ mod playthrough {
         });
         sim.app.update();
 
-        let back = Sim::reopen(saves);
+        let mut back = Sim::reopen(saves);
+        back.main_menu("Continue");
         assert_eq!(back.state(), GameState::Area, "the run was still there");
         assert_eq!(back.run().rubles, 777);
+    }
+
+    #[test]
+    fn the_main_menu_only_offers_a_run_there_is_something_to_pick_up() {
+        let saves = std::env::temp_dir().join("the-zone-test-mainmenu");
+        let _ = std::fs::remove_dir_all(&saves);
+
+        // Nothing saved yet: New Game and Quit, and no false promise of a run.
+        let mut sim = Sim::reopen(saves.clone());
+        assert_eq!(sim.state(), GameState::MainMenu);
+        sim.assert_shows("THE ZONE");
+        sim.assert_shows("New Game");
+        assert!(!sim.shows("Continue"), "no run to continue:
+{}", sim.screen());
+        sim.main_menu("New Game");
+        assert_eq!(sim.state(), GameState::CharacterCreation);
+
+        // Put one down, and the menu offers it back instead of starting over.
+        sim.roll_a_stalker();
+        sim.choose("Travel");
+        sim.run_mut().rubles = 99;
+        sim.press(KeyCode::F5);
+
+        let mut back = Sim::reopen(saves);
+        back.assert_shows("Continue");
+        back.main_menu("New Game"); // and taking a new one leaves it alone
+        assert_eq!(back.state(), GameState::CharacterCreation);
     }
 
     #[test]
@@ -1908,6 +2008,7 @@ mod playthrough {
         let _ = std::fs::remove_dir_all(&saves);
 
         let mut sim = Sim::reopen(saves.clone());
+        sim.main_menu("New Game");
         sim.roll_a_stalker();
         sim.choose("Travel"); // out to the road, so there is something to restore
         sim.run_mut().rubles = 1234;
@@ -1916,7 +2017,8 @@ mod playthrough {
         sim.press(KeyCode::F5);
 
         // Starting again drops you straight back where you stood.
-        let back = Sim::reopen(saves.clone());
+        let mut back = Sim::reopen(saves.clone());
+        back.main_menu("Continue");
         assert_eq!(back.state(), GameState::Area);
         back.assert_shows("A dirt road between the camp and the wastes");
         assert_eq!(back.run().rubles, 1234);
@@ -1925,7 +2027,11 @@ mod playthrough {
         assert!(back.run().discovered.contains("road"));
 
         // The file is spent. There is no reload (GDD 10).
-        let again = Sim::reopen(saves);
+        // No suspend file, so the menu does not offer to pick anything up.
+        let mut again = Sim::reopen(saves);
+        assert!(!again.shows("Continue"), "nothing left to continue:
+{}", again.screen());
+        again.main_menu("New Game");
         assert_eq!(again.state(), GameState::CharacterCreation);
     }
 
