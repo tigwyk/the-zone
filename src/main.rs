@@ -573,7 +573,7 @@ fn menu_input(
         return;
     }
     let here = act.area.0.clone();
-    let menu: Vec<Action> = visible_menu(&act.zone.areas[here.as_str()], &act.fields, &here)
+    let menu: Vec<Action> = visible_menu(&act.zone.areas[here.as_str()], &act.run, &act.fields, &here)
         .iter()
         .map(|(_, a)| a.clone())
         .collect();
@@ -614,7 +614,7 @@ fn menu_input(
 
     if changed {
         // The menu can shrink under the cursor: Take Artifact comes and goes.
-        let n = visible_menu(&act.zone.areas[act.area.0.as_str()], &act.fields, &act.area.0).len();
+        let n = visible_menu(&act.zone.areas[act.area.0.as_str()], &act.run, &act.fields, &act.area.0).len();
         sel.0 = sel.0.min(n.saturating_sub(1));
         build_area_grid(
             &mut grid,
@@ -680,7 +680,7 @@ fn perform(action: &Action, act: &mut Act, next_state: &mut NextState<GameState>
             next_state.set(GameState::Jobs);
         }
         Action::Give(item, count) => {
-            let key = format!("took:{here}:{item}");
+            let key = sim::took_key(&here, item);
             act.message.0 = if act.run.flags.insert(key) {
                 // A cache rolls like anything else the Zone has been at, against
                 // how deep the place is and how lucky you are.
@@ -1873,9 +1873,8 @@ mod playthrough {
         sim.assert_shows("The grass leans in");
         sim.press(KeyCode::Escape);
 
-        // Found once: turning it up again does not announce it as new.
-        sim.choose("Read the ground");
-        assert!(!sim.shows("You turn up something"), "{}", sim.screen());
+        // Found once: the row is spent, so it leaves the menu and frees the space.
+        assert!(!sim.shows("Read the ground"), "{}", sim.screen());
         assert_eq!(sim.run().lore.len(), 1);
     }
 

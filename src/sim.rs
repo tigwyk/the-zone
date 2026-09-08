@@ -239,17 +239,41 @@ impl Fields {
 }
 
 /// The menu as it should render here and now. `Take Artifact` only exists once
-/// something has been revealed (GDD §6).
+/// something has been revealed (GDD §6), and a scripted one-shot leaves the menu
+/// once it is spent: the payoff is in the pack, the journal or the flags, and a
+/// row that can never fire again is worth more empty.
 pub(crate) fn visible_menu<'a>(
     area: &'a AreaData,
+    run: &RunState,
     fields: &Fields,
     area_id: &str,
 ) -> Vec<&'a (String, Action)> {
     let revealed = fields.get(area_id).artifact;
     area.menu
         .iter()
-        .filter(|(_, action)| !matches!(action, Action::TakeArtifact) || revealed)
+        .filter(|(_, action)| match action {
+            Action::TakeArtifact => revealed,
+            action => !spent(action, run, area_id),
+        })
         .collect()
+}
+
+/// The flag that marks a cache emptied here. Written by the `Give` handler and
+/// read by `spent`, so the two cannot drift apart.
+pub(crate) fn took_key(area_id: &str, item: &str) -> String {
+    format!("took:{area_id}:{item}")
+}
+
+/// Has this scripted one-shot already fired? Every one-use verb answers here: the
+/// payoff is already in the pack, the journal or the flags, so there is nothing
+/// left for the row to do.
+pub(crate) fn spent(action: &Action, run: &RunState, area_id: &str) -> bool {
+    match action {
+        Action::Give(item, _) => run.flags.contains(&took_key(area_id, item)),
+        Action::SetFlag(flag) => run.flags.contains(flag),
+        Action::Lore(id) => run.lore.contains(id),
+        _ => false,
+    }
 }
 
 /// Stalker Lore, assisted by PER, harder at night without a light (GDD §5, §6).
@@ -513,8 +537,26 @@ mod tests {
         // A second attempt finds an empty field, and the menu no longer offers it.
         assert!(take_artifact("field", &anomaly, &mut run, &zone, &mut fields).contains("nothing left"));
         assert_eq!(run.count_of(&anomaly.artifact), 1);
-        let menu = visible_menu(&zone.areas["field"], &fields, "field");
+        let menu = visible_menu(&zone.areas["field"], &run, &fields, "field");
         assert!(!menu.iter().any(|(_, a)| matches!(a, Action::TakeArtifact)));
+    }
+
+    #[test]
+    fn a_spent_one_shot_leaves_the_menu() {
+        let (zone, mut run, _, fields, _, _) = fixture();
+        let hatch = &zone.areas["hatch"];
+        let labels = |run: &RunState| -> Vec<String> {
+            visible_menu(hatch, run, &fields, "hatch")
+                .iter()
+                .map(|(l, _)| l.clone())
+                .collect()
+        };
+        assert!(labels(&run).contains(&"Take the kit".to_string()));
+
+        run.flags.insert(took_key("hatch", "sawn_off"));
+        run.flags.insert("read_the_log".into());
+        run.lore.insert("the_hatch".into());
+        assert_eq!(labels(&run), ["The bench", "Return"]);
     }
 
     #[test]

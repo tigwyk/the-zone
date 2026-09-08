@@ -672,7 +672,7 @@ pub(crate) fn build_area_grid(
     draw_liquids(grid, puddles, area_id);
 
     // Menu rows 22-26.
-    for (i, (label, _)) in visible_menu(area, fields, area_id).iter().enumerate() {
+    for (i, (label, _)) in visible_menu(area, run, fields, area_id).iter().enumerate() {
         row(grid, 0, MENU_ROW + i, i == sel, PALETTE.menu, false, label);
     }
 
