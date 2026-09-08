@@ -339,7 +339,9 @@ pub(crate) fn throw_bolt(
     }
 }
 
-/// Returns the message and, on success, the area on the far side.
+/// Returns the message and, on success, the area on the far side. A field that
+/// catches you keeps you on this side of it (GDD Â§6): a bolt buys the crossing,
+/// and walking in blind can cost you the hour, the health and the ground.
 pub(crate) fn push_through(
     area_id: &str,
     anomaly: &AnomalyData,
@@ -349,6 +351,7 @@ pub(crate) fn push_through(
 ) -> (String, Option<String>) {
     let state = fields.get(area_id);
     let known_safe = state.scanned || state.bolt_safe == Some(true);
+    // The bolt only ever spoke for the next step, and this was it.
     fields.entry(area_id).bolt_safe = None;
 
     if known_safe {
@@ -357,12 +360,14 @@ pub(crate) fn push_through(
             Some(anomaly.beyond.clone()),
         );
     }
-    if rng.roll(100) <= anomaly.danger {
+    // Blind is a gamble; straight into what the bolt just found is not a gamble.
+    let caught = state.bolt_safe == Some(false) || rng.roll(100) <= anomaly.danger;
+    if caught {
         let damage = combat::roll_dice(anomaly.dice, rng);
         run.hp -= damage;
         (
-            format!("The {} catches you. {damage} damage.", anomaly.name),
-            Some(anomaly.beyond.clone()),
+            format!("The {} catches you and throws you back. {damage} damage.", anomaly.name),
+            None,
         )
     } else {
         (
@@ -514,6 +519,14 @@ mod tests {
 
         run.take_item("bolt", bolts - 1);
         assert!(throw_bolt("field", &anomaly, &mut run, &mut fields, &mut rng).contains("out of bolts"));
+
+        // A bolt that came back bad means the way is shut: push anyway and the
+        // field takes the damage out of you and leaves you where you stood.
+        fields.entry("field").bolt_safe = Some(false);
+        let hp = run.hp;
+        let (msg, dest) = push_through("field", &anomaly, &mut run, &mut fields, &mut rng);
+        assert_eq!(dest, None, "{msg}");
+        assert!(run.hp < hp, "{msg}");
 
         // A scanned field is crossed without a roll, and the bolt reading is spent.
         fields.entry("field").scanned = true;

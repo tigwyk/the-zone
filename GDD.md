@@ -212,7 +212,10 @@ an hour, like any travel. On a scan, PER assists Stalker Lore at **+2 per point 
 2. **Throw Bolt** — costs one bolt. No check. Reveals whether the *next* step is safe.
    Bolts are cheap and the signature move; the tension is in running out.
 3. **Push Through** — no check, gamble: damage chance equals the field's danger rating
-   (30–80%). Reaches whatever is on the far side.
+   (30–80%). Get away with it and you reach the far side; get caught and the field
+   takes the damage out of you and throws you back where you stood, an hour gone.
+   A field the bolt has just called unsafe catches you every time. A scanned path
+   or a good bolt crosses clean — that is what a bolt is for.
 4. **Take artifact** — appears only after one is revealed. Holding it: +rads per hour
    as listed.
 
