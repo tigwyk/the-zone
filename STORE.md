@@ -7,6 +7,10 @@ Copy for the game page at `tigwyk.itch.io/the-zone`. Screenshots live in
 
 The Zone
 
+## Cover art
+
+`cover.svg` is the source; `cover.png` (630×500) is the raster itch.io wants.
+
 ## Short text (one line, the card blurb — max 120 chars)
 
 You are a stalker in the Zone — a quarantined wasteland where physics has gone

@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 630 500" width="630" height="500" role="img" aria-label="The Zone">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="50%" r="72%">
+      <stop offset="0%" stop-color="#182519"/>
+      <stop offset="62%" stop-color="#0d110d"/>
+      <stop offset="100%" stop-color="#070907"/>
+    </radialGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="7" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <pattern id="scan" width="1" height="3" patternUnits="userSpaceOnUse">
+      <rect width="1" height="1" fill="#000000" opacity="0.12"/>
+    </pattern>
+  </defs>
+
+  <rect width="630" height="500" fill="url(#bg)"/>
+
+  <text x="315" y="180" text-anchor="middle" font-family="Consolas,'Cascadia Mono','Courier New',monospace" font-size="62" letter-spacing="8" fill="#9ec79e">THE ZONE</text>
+
+  <text x="315" y="300" text-anchor="middle" font-family="Consolas,'Cascadia Mono','Courier New',monospace" font-size="30" fill="#425445">
+    <tspan>. : = + * @ % # </tspan><tspan fill="#29ffff" filter="url(#glow)">[D]</tspan><tspan> = . : * @ % #</tspan>
+  </text>
+
+  <text x="315" y="396" text-anchor="middle" font-family="Consolas,'Cascadia Mono','Courier New',monospace" font-size="21" letter-spacing="2" fill="#c2c7ad">Nobody comes back the same.</text>
+
+  <rect width="630" height="500" fill="url(#scan)"/>
+</svg>
