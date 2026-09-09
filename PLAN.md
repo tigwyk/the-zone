@@ -77,7 +77,9 @@ Room, which is an NPC — so its wish list is content, built out of the run by t
 requirements every other dialogue line uses. Six endings, literal or corrupted. Death
 and endings both go through `meta::bank`: the memorial takes the name, the days, the
 cause and the last thing that happened, a quarter of the standing carries forward, and
-the suspend file is deleted. F5 suspends and quits; starting again spends the file.
+the suspend file is deleted. A summary screen reads the run back — days, places,
+kills, jobs, stories, artifacts — and Esc drops you on the main menu with no run left
+to continue. F5 suspends and quits; starting again spends the file.
 
 ### How it is kept honest
 
@@ -114,8 +116,6 @@ native scale factor so high-DPI (Retina) displays get a readable, sharp grid.
 - Shops do not roll affixes; artifacts do not carry them either.
 - The Ecologist and Bandit unlock off the Room and dying of wounds. The Lab and the
   bandits exist now, so the GDD §4 triggers could be wired to them directly.
-- No `MainMenu`, and no new run without relaunching: an ending or a death ends the
-  process.
 - No rep-gated post entry, no roving encounters, no cover or encumbrance.
 - No weapon durability, jamming, burst fire or ammunition weight; a botched Repair
   check eating a mod is the only way gear is ever the worse for wear.

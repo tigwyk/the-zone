@@ -34,6 +34,7 @@ pub(crate) fn action_minutes(action: &Action) -> u32 {
         | Action::Memorial
         | Action::Lore(_)
         | Action::Give(_, _)
+        | Action::Spend(_, _)
         | Action::End(_)
         | Action::Craft => 0,
     }

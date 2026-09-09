@@ -233,10 +233,13 @@ fn drive_glitch(
 
 fn enter_creation(
     mut grid: ResMut<TileGrid>,
-    c: Res<Creation>,
+    mut c: ResMut<Creation>,
     meta: Res<MetaProgress>,
     message: Res<MessageLine>,
 ) {
+    // Every "New Game" starts back at the top of the roll, not where the last one
+    // left the cursor.
+    *c = Creation::default();
     build_creation_grid(&mut grid, &meta, c.phase, c.sel, c.background, &c.tags, &message.0);
 }
 
@@ -331,6 +334,7 @@ fn main_menu_input(
 fn creation_input(
     keys: Res<ButtonInput<KeyCode>>,
     mut c: ResMut<Creation>,
+    mut menu_sel: ResMut<MenuSelection>,
     mut grid: ResMut<TileGrid>,
     mut act: Act,
     mut next_state: ResMut<NextState<GameState>>,
@@ -355,6 +359,24 @@ fn creation_input(
             c.tags.push(sel);
             if c.tags.len() == TAG_COUNT {
                 *act.run = RunState::roll(c.background, &c.tags, &mut act.rng);
+                // A fresh stalker starts clean: back at the camp with the Zone
+                // re-rolled around them. Only the standing and lore the last one
+                // banked carry over (GDD §10).
+                act.area.0 = act.zone.start.clone();
+                menu_sel.0 = 0;
+                *act.fields = Fields::default();
+                *act.puddles = Puddles::seed(&act.zone);
+                *act.stock = VendorStock(
+                    act.zone
+                        .vendors
+                        .iter()
+                        .map(|(id, v)| (id.clone(), area::shelf(v)))
+                        .collect(),
+                );
+                *act.combat = Combat::default();
+                *act.dialogue = Dialogue::default();
+                *act.board = Board::default();
+                *act.trade_ui = TradeUi::default();
                 // A quarter of the last stalker's standing came with you (GDD §10).
                 for (faction, carried) in &act.meta.rep {
                     let now = act.run.rep_of(faction);
@@ -701,12 +723,19 @@ fn perform(action: &Action, act: &mut Act, next_state: &mut NextState<GameState>
                 "You have already had that out of here.".into()
             };
         }
+        Action::Spend(item, count) => {
+            act.message.0 = if act.run.take_item(item, *count) {
+                format!("You hand over the {}.", act.zone.items[item].name)
+            } else {
+                "You do not have that to give.".into()
+            };
+        }
         Action::Lore(entry) => {
             let lore = &act.zone.lore[entry];
             act.message.0 = if act.run.lore.insert(entry.clone()) {
                 format!("You turn up something: {}. It is in the journal.", lore.title)
             } else {
-                lore.title.clone()
+                format!("{} is already in the journal.", lore.title)
             };
         }
         Action::Memorial => {
@@ -854,6 +883,10 @@ fn combat_input(
         return;
     }
     if check_death(&mut act.run) {
+        // A death in a fight is still a death: the memorial gets the name and the
+        // run is spent, exactly as dying anywhere else does (GDD §10).
+        let cause = act.run.death.clone().unwrap_or_default();
+        meta::bank(&mut act.meta, &act.run, &act.dir, &cause, &act.message.0);
         next_state.set(GameState::GameOver);
         return;
     }
@@ -905,6 +938,9 @@ fn dialogue_input(
     let mut changed = arrows(&keys, &mut act.dialogue.sel, n);
     if keys.just_pressed(KeyCode::Enter) {
         let taken = dialogue::take(&mut act.dialogue, &act.run, &act.zone);
+        if let Some(flag) = &taken.flag {
+            act.run.flags.insert(flag.clone());
+        }
         act.message.0 = taken.message;
         // Set the fallback first: an action may well send us somewhere better.
         if taken.close {
@@ -1215,14 +1251,25 @@ fn trade_input(
 
 // ---- the end of a run ----
 
-fn enter_gameover(mut grid: ResMut<TileGrid>, run: Res<RunState>) {
+fn enter_gameover(
+    mut grid: ResMut<TileGrid>,
+    zone: Res<ZoneData>,
+    run: Res<RunState>,
+) {
     let cause = run.death.clone().unwrap_or_default();
-    build_gameover_grid(&mut grid, &run, &cause);
+    build_gameover_grid(&mut grid, &zone, &run, &cause);
 }
 
-fn gameover_input(keys: Res<ButtonInput<KeyCode>>, mut exit: MessageWriter<AppExit>) {
+/// An ending is not the exit: it wraps back to the menu. The run itself is spent
+/// (`meta::bank` deleted the suspend), so the menu has nothing to continue.
+fn gameover_input(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut message: ResMut<MessageLine>,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
     if keys.just_pressed(KeyCode::Escape) {
-        exit.write(AppExit::Success);
+        message.0.clear();
+        next_state.set(GameState::MainMenu);
     }
 }
 
@@ -1694,6 +1741,7 @@ mod playthrough {
 
         // Unarmed, at one hit point, against a Flesh. This ends one way.
         sim.run_mut().hp = 1;
+        let name = sim.run().name.clone();
         for _ in 0..40 {
             if sim.state() != GameState::Combat {
                 break;
@@ -1702,6 +1750,9 @@ mod playthrough {
         }
         assert_eq!(sim.state(), GameState::GameOver);
         sim.assert_shows("THE ZONE IS STILL THERE");
+        // Dying in a fight still writes the memorial entry, name and all (GDD §10).
+        assert_eq!(sim.meta().memorial.len(), 1, "a combat death is still a death");
+        assert_eq!(sim.meta().memorial[0].name, name);
     }
 
     #[test]
@@ -1856,6 +1907,36 @@ mod playthrough {
     }
 
     #[test]
+    fn the_hermit_takes_one_bottle_and_only_one() {
+        let mut sim = Sim::with_saves("hermit");
+        sim.roll_a_stalker();
+
+        // Stand in front of the hermit with two bottles and the pay job taken.
+        sim.run_mut().add_item("vodka", 2);
+        sim.run_mut().quests_taken.insert("way_2".into());
+        sim.app.world_mut().resource_mut::<CurrentArea>().0 = "dead_town".into();
+        sim.press(KeyCode::ArrowDown); // redraw the new area before choosing from it
+
+        sim.choose("Talk to the hermit");
+        assert_eq!(sim.state(), GameState::Dialogue);
+        sim.choose_listed("[carrying vodka] I brought something.");
+
+        // One bottle leaves the pack, the job pays, and the line is spent.
+        assert_eq!(sim.run().count_of("vodka"), 1, "{}", sim.screen());
+        assert!(sim.run().flags.contains("paid_hermit"));
+        assert!(sim.run().quests_done.contains("way_2"), "{}", sim.screen());
+        sim.assert_shows("You hand over the Vodka");
+
+        // Back on the greeting the line no longer pays: a second press spends nothing.
+        sim.press(KeyCode::Escape);
+        assert_eq!(sim.state(), GameState::Area);
+        sim.choose("Talk to the hermit");
+        sim.choose_listed("[carrying vodka] I brought something.");
+        assert_eq!(sim.run().count_of("vodka"), 1, "a spent line does not spend twice");
+        sim.assert_shows("not the one to make that argument");
+    }
+
+    #[test]
     fn lore_is_found_once_and_kept_in_the_journal() {
         let mut sim = Sim::with_saves("lore");
         sim.roll_a_stalker();
@@ -1904,6 +1985,36 @@ mod playthrough {
         sim.assert_shows("THE ZONE IS STILL THERE");
         assert_eq!(sim.meta().memorial.len(), 1, "every ending writes a memorial entry");
         assert!(sim.meta().unlocked(2), "reaching the centre earns the Ecologist");
+    }
+
+    #[test]
+    fn an_ending_wraps_back_to_the_menu_and_offers_no_continue() {
+        let mut sim = Sim::with_saves("ending-menu");
+        sim.roll_a_stalker();
+        sim.walk_to_the_room();
+        sim.choose("Step into the light");
+        sim.choose_listed("Make me whole");
+        assert_eq!(sim.state(), GameState::GameOver);
+        // The summary screen reads back what the run got done.
+        sim.assert_shows("THE TALLY");
+        sim.assert_shows("Things killed");
+        sim.assert_shows("Places walked");
+
+        // An ending is not the exit: Esc goes back to the menu, not to the desktop.
+        sim.press(KeyCode::Escape);
+        assert_eq!(sim.state(), GameState::MainMenu);
+        sim.assert_shows("New Game");
+        assert!(
+            !sim.shows("Continue"),
+            "the run is spent, so there is nothing to continue:\n{}",
+            sim.screen()
+        );
+
+        // And the next run starts clean at the camp, not at the Room.
+        sim.main_menu("New Game");
+        sim.roll_a_stalker();
+        assert_eq!(sim.state(), GameState::Area);
+        sim.assert_shows("A fire burns at the camp's heart");
     }
 
     #[test]

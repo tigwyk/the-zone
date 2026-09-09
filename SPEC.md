@@ -177,7 +177,7 @@ Zone(
 | `Memorial` | M6 | show the fallen |
 | `Lore(LoreId)` | M8 | turn up a lore entry; kept across runs |
 | `Give(ItemId, u32)` | M8 | put something in the pack, once per area per run |
-| `End(EndingId)` | M6 | end the run on that ending; nothing follows it |
+| `End(EndingId)` | M6 | end the run on that ending; the summary screen follows |
 
 Items and vendors sit in the same file (SPEC §5.3 carves them out later):
 

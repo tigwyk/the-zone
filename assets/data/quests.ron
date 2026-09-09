@@ -95,7 +95,7 @@
     "way_2": Quest(
         name: "The way in, second: pay", faction: "loners",
         text: "The hermit talks for vodka and only vodka. Bring a bottle.",
-        goal: Have("vodka"), rubles: 600, rep: 5,
+        goal: Flag("paid_hermit"), rubles: 600, rep: 5,
         requires: Some("way_1"),
     ),
     "way_3": Quest(

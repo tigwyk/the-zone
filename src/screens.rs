@@ -759,31 +759,49 @@ pub(crate) fn build_map_grid(
 
 // ---- the end of a run ----
 
-/// `ponytail:` the memorial, meta-progress and rolling a new stalker are M6.
-/// This screen exists so a dead stalker stops playing.
-pub(crate) fn build_gameover_grid(grid: &mut TileGrid, run: &RunState, cause: &str) {
+/// The end of a run, dead or granted: who they were, how it ended, and what the
+/// run added up to before it stopped (the Zone keeps the rest - GDD §10).
+pub(crate) fn build_gameover_grid(
+    grid: &mut TileGrid,
+    zone: &ZoneData,
+    run: &RunState,
+    cause: &str,
+) {
     grid.clear();
-    match &run.ending {
-        Some(name) => {
-            grid.text(0, 4, name, PALETTE.cyan, true);
-            grid.text(0, 6, "THE ZONE IS STILL THERE", PALETTE.red, true);
-        }
-        None => grid.text(0, 6, "THE ZONE IS STILL THERE", PALETTE.red, true),
+    grid.text(0, 0, "THE ZONE IS STILL THERE", PALETTE.red, true);
+
+    let who = format!("{}, the {}.", run.name, BACKGROUNDS[run.background].name);
+    grid.text(0, 2, &who, PALETTE.grey, false);
+    if let Some(name) = &run.ending {
+        grid.text(0, 4, name, PALETTE.cyan, true);
     }
     for (i, line) in wrap(cause, 76).iter().enumerate() {
-        grid.text(0, 8 + i, line, PALETTE.desc, false);
+        grid.text(0, 6 + i, line, PALETTE.desc, false);
     }
-    let epitaph = format!(
-        "{}, the {}. {} days in, {} rads, {} RU on you.",
-        run.name,
-        BACKGROUNDS[run.background].name,
-        run.day(),
-        run.rads,
-        run.rubles
-    );
-    grid.text(0, 16, &epitaph, PALETTE.grey, false);
-    grid.text(0, 18, "The next one will read your name at the camp.", PALETTE.dim, false);
-    hint(grid, "Esc quit");
+
+    // What the run got done before it ended.
+    grid.text(0, 12, "THE TALLY", PALETTE.dim, false);
+    let artifacts = run
+        .items
+        .iter()
+        .filter(|s| matches!(zone.items[&s.id].kind, ItemKind::Artifact { .. }))
+        .count();
+    let rows: [(&str, String); 7] = [
+        ("Days in the Zone", run.day().to_string()),
+        ("Places walked", format!("{} of {}", run.discovered.len(), zone.areas.len())),
+        ("Things killed", run.kills.len().to_string()),
+        ("Jobs finished", format!("{} of {}", run.quests_done.len(), run.quests_taken.len())),
+        ("Stories turned up", run.lore.len().to_string()),
+        ("Artifacts carried", artifacts.to_string()),
+        ("Rubles on you", run.rubles.to_string()),
+    ];
+    for (i, (label, value)) in rows.iter().enumerate() {
+        grid.text(0, 14 + i, label, PALETTE.dim, false);
+        grid.text(22, 14 + i, value, PALETTE.status, false);
+    }
+
+    grid.text(0, 22, "The next one will read your name at the camp.", PALETTE.dim, false);
+    hint(grid, "Esc back to the menu");
 }
 
 // ---- tests (SPEC §7) ----
@@ -1040,7 +1058,7 @@ mod tests {
             crate::sim::FieldState { scanned: true, artifact: true, ..Default::default() },
         );
         build_area_grid(&mut grid, &zone, &run, &clock, &fields, &puddles, "field", 4, "test");
-        build_gameover_grid(&mut grid, &run, "test");
+        build_gameover_grid(&mut grid, &zone, &run, "test");
         build_trade_grid(&mut grid, &zone, &stock, &run, &clock, "trader", true, 0, "test");
         build_trade_grid(&mut grid, &zone, &stock, &run, &clock, "trader", false, 0, "test");
         // Last, so the status row below is the one this screen drew.

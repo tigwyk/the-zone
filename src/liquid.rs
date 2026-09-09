@@ -73,12 +73,10 @@ impl Puddles {
     pub(crate) fn empty() -> Self {
         Puddles(HashMap::new())
     }
-}
 
-impl FromWorld for Puddles {
-    fn from_world(world: &mut World) -> Self {
-        // Authored liquids seed the run; combat pools into them from here on.
-        let zone = world.resource::<ZoneData>();
+    /// Authored liquids seed the run; combat pools into them from here on. A new
+    /// stalker starts on the authored floor, not the last one's blood.
+    pub(crate) fn seed(zone: &ZoneData) -> Self {
         let mut puddles = Puddles::empty();
         for (id, area) in &zone.areas {
             for (liquid, amount) in &area.liquids {
@@ -86,6 +84,13 @@ impl FromWorld for Puddles {
             }
         }
         puddles
+    }
+}
+
+impl FromWorld for Puddles {
+    fn from_world(world: &mut World) -> Self {
+        let zone = world.resource::<ZoneData>();
+        Puddles::seed(zone)
     }
 }
 

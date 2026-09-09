@@ -136,6 +136,9 @@ pub(crate) enum Action {
     /// Put something in the pack, once. GDD §8: a secret has to pay off, and the
     /// payoff is a room, an artifact, or something you can carry out.
     Give(String, u32),
+    /// Hand something over from the pack: the mirror of `Give`, for a dialogue
+    /// line whose price is an item (the hermit's vodka).
+    Spend(String, u32),
     /// End the run on this ending. There is nothing after it.
     End(String),
 }
@@ -406,6 +409,7 @@ impl ZoneData {
             Action::End(e) => must(&self.endings, e, whose, "ends on unknown ending"),
             Action::Lore(l) => must(&self.lore, l, whose, "turns up unknown lore"),
             Action::Give(i, _) => must(&self.items, i, whose, "hands over unknown item"),
+            Action::Spend(i, _) => must(&self.items, i, whose, "hands over unknown item"),
             // SPEC §8: one line, at most 78 characters, and no shouting.
             Action::Say(line) => {
                 assert!(
@@ -520,6 +524,7 @@ impl ZoneData {
                 crate::quest::Goal::Have(i) => must(&self.items, i, &whose, "wants unknown item"),
                 crate::quest::Goal::Reach(a) => must(&self.areas, a, &whose, "sends you to unknown area"),
                 crate::quest::Goal::Kill(e) => must(&self.enemies, e, &whose, "wants the unknown enemy dead"),
+                crate::quest::Goal::Flag(_) => {}
             }
         }
         for (id, faction) in &self.factions {

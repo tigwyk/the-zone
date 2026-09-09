@@ -40,6 +40,9 @@ pub(crate) struct Line {
     pub req: Option<Req>,
     #[serde(default)]
     pub action: Option<Action>,
+    /// Set once, when this line is said, so a payment or a reveal is one-shot.
+    #[serde(default)]
+    pub flag: Option<String>,
     /// Where the conversation goes next. `None` ends it.
     #[serde(default)]
     pub goto: Option<String>,
@@ -50,6 +53,10 @@ pub(crate) enum Req {
     Skill(Skill, i32),
     Rep(String, i32),
     Flag(String),
+    /// The inverse of `Flag`: the line shows only while this has not happened yet.
+    NotFlag(String),
+    /// Both must hold, so a line can want an item *and* be said only once.
+    Both(Box<Req>, Box<Req>),
     /// The Room's short list is built from the run (GDD §9): what you have, what you
     /// have killed, what you have done for people.
     Rubles(u32),
@@ -64,6 +71,8 @@ impl Req {
             Req::Skill(skill, at_least) => run.skills[skill.index()] >= *at_least,
             Req::Rep(faction, at_least) => run.rep_of(faction) >= *at_least,
             Req::Flag(flag) => run.flags.contains(flag),
+            Req::NotFlag(flag) => !run.flags.contains(flag),
+            Req::Both(a, b) => a.met(run) && b.met(run),
             Req::Rubles(at_least) => run.rubles >= *at_least,
             Req::Carrying(item) => run.count_of(item) > 0,
             Req::Killed(enemy) => run.kills.contains(enemy),
@@ -103,6 +112,7 @@ pub(crate) fn options<'a>(dialogue: &Dialogue, zone: &'a ZoneData) -> &'a [Line]
 /// What picking the highlighted line did.
 pub(crate) struct Taken {
     pub action: Option<Action>,
+    pub flag: Option<String>,
     pub close: bool,
     pub message: String,
 }
@@ -112,6 +122,7 @@ pub(crate) fn take(dialogue: &mut Dialogue, run: &RunState, zone: &ZoneData) -> 
     if !met(&line, run) {
         return Taken {
             action: None,
+            flag: None,
             close: false,
             message: "You are not the one to make that argument.".into(),
         };
@@ -120,9 +131,9 @@ pub(crate) fn take(dialogue: &mut Dialogue, run: &RunState, zone: &ZoneData) -> 
         Some(next) => {
             dialogue.node = next.clone();
             dialogue.sel = 0;
-            Taken { action: line.action, close: false, message: String::new() }
+            Taken { action: line.action, flag: line.flag, close: false, message: String::new() }
         }
-        None => Taken { action: line.action, close: true, message: String::new() },
+        None => Taken { action: line.action, flag: line.flag, close: true, message: String::new() },
     }
 }
 
@@ -222,5 +233,37 @@ mod tests {
         assert!(!met(line, &run), "20 standing is not 25");
         run.rep.insert("loners".into(), 30);
         assert!(met(line, &run));
+    }
+
+    #[test]
+    fn the_hermit_takes_one_bottle_and_only_one() {
+        let (zone, mut run, mut dialogue) = fixture();
+        run.add_item("vodka", 2);
+        start("hermit", &mut dialogue, &zone);
+
+        let pay = options(&dialogue, &zone)
+            .iter()
+            .position(|l| l.text.contains("I brought something"))
+            .expect("the hermit has a pay line");
+        assert!(met(&options(&dialogue, &zone)[pay], &run), "vodka in hand, unpaid");
+
+        // Saying it hands the bottle over and marks the payment, in one go.
+        dialogue.sel = pay;
+        let taken = take(&mut dialogue, &run, &zone);
+        assert!(matches!(&taken.action, Some(Action::Spend(item, 1)) if item == "vodka"));
+        assert_eq!(taken.flag.as_deref(), Some("paid_hermit"));
+        assert_eq!(dialogue.node, "paid");
+
+        // Apply what `perform` would: the bottle leaves the pack and the flag lands.
+        assert!(run.take_item("vodka", 1));
+        run.flags.insert("paid_hermit".into());
+
+        // With the flag set the same line no longer opens, however much is carried.
+        dialogue.node = "hello".into();
+        dialogue.sel = pay;
+        let again = take(&mut dialogue, &run, &zone);
+        assert!(again.message.contains("not the one"));
+        assert_eq!(dialogue.node, "hello", "a spent line goes nowhere");
+        assert_eq!(run.count_of("vodka"), 1, "the second bottle stayed in the pack");
     }
 }

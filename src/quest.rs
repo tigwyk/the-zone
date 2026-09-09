@@ -12,7 +12,9 @@ use crate::sim::GameClock;
 
 const LIST_ROW: usize = 4;
 
-/// GDD §9 names five shapes. These three ride on state the run already keeps.
+/// GDD §9 names five shapes. These ride on state the run already keeps, plus one
+/// flag shape for the moment a job is done by something you *said* rather than
+/// something you carried, reached or killed.
 /// `ponytail:` escort and deliver need followers and NPC-to-NPC routes; they are
 /// content-blocked, not design-blocked.
 #[derive(Deserialize, Clone)]
@@ -21,6 +23,8 @@ pub(crate) enum Goal {
     Have(String),
     Reach(String),
     Kill(String),
+    /// Settled once a story flag is set - the hermit's bottle, handed over in dialogue.
+    Flag(String),
 }
 
 #[derive(Deserialize, Clone)]
@@ -92,6 +96,7 @@ fn done(goal: &Goal, run: &RunState) -> bool {
         Goal::Have(item) => run.count_of(item) > 0,
         Goal::Reach(area) => run.discovered.contains(area),
         Goal::Kill(enemy) => run.kills.contains(enemy),
+        Goal::Flag(flag) => run.flags.contains(flag),
     }
 }
 
@@ -367,5 +372,28 @@ mod tests {
         let msg = settle(&mut run, &zone);
         assert!(msg.contains("Walk the rim") && msg.contains("Cull the rim"), "{msg}");
         assert_eq!(run.rep_of("duty"), 15);
+    }
+
+    #[test]
+    fn a_flag_goal_settles_once_the_flag_is_set_and_takes_nothing() {
+        let (zone, mut run) = fixture();
+        run.quests_taken.insert("way_2".into());
+        run.add_item("vodka", 1);
+        let purse = run.rubles;
+
+        // Carrying the bottle is not the payment: the hermit has to be paid.
+        assert!(settle(&mut run, &zone).is_empty(), "no flag, no pay");
+
+        run.flags.insert("paid_hermit".into());
+        let msg = settle(&mut run, &zone);
+        assert!(msg.contains("The way in, second"), "{msg}");
+        assert_eq!(run.rubles, purse + zone.quests["way_2"].rubles);
+        assert_eq!(run.count_of("vodka"), 1, "the flag goal takes nothing itself");
+        assert!(run.quests_done.contains("way_2"));
+
+        // Settling again pays nothing.
+        let purse = run.rubles;
+        assert!(settle(&mut run, &zone).is_empty());
+        assert_eq!(run.rubles, purse);
     }
 }

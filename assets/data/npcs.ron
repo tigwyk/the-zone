@@ -241,7 +241,9 @@
                 options: [
                     Line(
                         text: "[carrying vodka] I brought something.",
-                        req: Some(Carrying("vodka")),
+                        req: Some(Both(Carrying("vodka"), NotFlag("paid_hermit"))),
+                        action: Some(Spend("vodka", 1)),
+                        flag: Some("paid_hermit"),
                         goto: Some("paid"),
                     ),
                     Line(text: "They say you have been to the centre.", goto: Some("centre")),
