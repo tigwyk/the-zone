@@ -241,13 +241,17 @@ pub(crate) fn build_inventory_grid(
         let count = if stack.count > 1 { format!("{:>3}", stack.count) } else { "   ".into() };
         // The list column ends at the panel gutter; a name that ran long pushed the
         // count and the "[wielded]" marker under the panel. Long affixed names are cut
-        // here and read out in full below the list.
+        // here and read out in full below the list. A modded thing carries a `+` after
+        // its name, inside the same 68-column field, so it is visible at a glance.
+        let mark = if stack.mods.is_empty() { "" } else { "+" };
         let mut name = loot::display_name(stack, zone);
-        if name.chars().count() > 68 {
-            let cut: String = name.chars().take(65).collect();
+        let width = 68 - mark.len();
+        if name.chars().count() > width {
+            let cut: String = name.chars().take(width - 3).collect();
             name = format!("{cut}...");
         }
-        let label = format!("{name:<68}{count}{slot}");
+        let name_col = format!("{name}{mark}");
+        let label = format!("{name_col:<68}{count}{slot}");
         // The colour is the rarity: how much of the Zone got into it.
         let rarity = stack.rarity();
         let bold = rarity >= Rarity::Warped;
@@ -848,6 +852,34 @@ mod tests {
         let i = index_of(&run, "plate");
         let (msg, acted) = use_item(&zone, &mut run, i, &mut Rng::new(4));
         assert!(!acted, "{msg}");
+    }
+
+    /// A modded weapon reads as modified straight off the list, not only in the
+    /// detail block under it - and the marker still fits beside "[wielded]".
+    #[test]
+    fn a_modified_weapon_is_marked_in_the_list() {
+        use crate::render::{TileGrid, GRID_H, GRID_W};
+
+        let (zone, _, mut run) = fixture();
+        with_a_pistol(&zone, &mut run, "scope");
+        let i = index_of(&run, "scope");
+        let (_, acted) = use_item(&zone, &mut run, i, &mut Rng::new(4));
+        assert!(acted);
+
+        let mut grid = TileGrid::new(GRID_W, GRID_H);
+        build_inventory_grid(&mut grid, &zone, &run, &GameClock::default(), 0, "");
+
+        let row = |y: usize| (0..GRID_W).map(|x| grid.cells[y * GRID_W + x].ch).collect::<String>();
+        let line = (LIST_ROW..LIST_ROW + PACK_ROWS)
+            .map(row)
+            .find(|r| r.contains("PMm Pistol"))
+            .expect("the pistol is listed");
+        assert!(line.contains("PMm Pistol+"), "a modded weapon is marked: {line}");
+        assert!(line.contains("[wielded]"), "{line}");
+        // The marker stays inside the name column, so the row never reaches the panel.
+        for y in 0..=PANEL_LAST_ROW {
+            assert_eq!(grid.cells[y * GRID_W + PANEL_COL - 1].ch, ' ', "row {y} runs into the panel");
+        }
     }
 
     #[test]
