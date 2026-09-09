@@ -1390,6 +1390,29 @@ mod playthrough {
             (0..GRID_H).map(|y| self.row(y) + "\n").collect()
         }
 
+        /// Writes the current grid (char, colour, bold per cell) to `target/screens`
+        /// for the release screenshot renderer. A dev tool, not a test - see
+        /// `dump_screens_for_release`.
+        fn dump(&self, name: &str) {
+            let grid = self.app.world().resource::<TileGrid>();
+            let mut out = String::new();
+            for (i, cell) in grid.cells.iter().enumerate() {
+                let (x, y) = (i % GRID_W, i / GRID_W);
+                let c = cell.fg.to_srgba();
+                let r = (c.red * 255.0).round() as u8;
+                let g = (c.green * 255.0).round() as u8;
+                let b = (c.blue * 255.0).round() as u8;
+                out.push_str(&format!(
+                    "{x} {y} {} {r} {g} {b} {}\n",
+                    cell.ch as u32,
+                    cell.bold as u8
+                ));
+            }
+            let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/screens");
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join(format!("{name}.grid")), out).unwrap();
+        }
+
         fn shows(&self, text: &str) -> bool {
             self.screen().contains(text)
         }
@@ -1540,6 +1563,30 @@ mod playthrough {
                 .press(KeyCode::ArrowDown)
                 .press(KeyCode::Enter) // tag Melee, and the run starts
         }
+    }
+
+    /// Release tool: drives the game to the screens worth showing on the store page
+    /// and dumps each grid to `target/screens` for the PNG renderer. Ignored because
+    /// it writes files instead of asserting.
+    #[test]
+    #[ignore = "release tool: dumps store-page screenshots"]
+    fn dump_screens_for_release() {
+        let saves = std::env::temp_dir().join("the-zone-test-dump");
+        let _ = std::fs::remove_dir_all(&saves);
+        let mut sim = Sim::reopen(saves); // on the main menu, before New Game
+        sim.dump("01-main-menu");
+        sim.main_menu("New Game");
+        sim.roll_a_stalker();
+        sim.dump("02-camp");
+        sim.press(KeyCode::Tab);
+        sim.dump("03-inventory");
+        sim.press(KeyCode::Escape);
+        sim.press(KeyCode::F2);
+        sim.dump("04-map");
+        sim.press(KeyCode::Escape);
+        sim.press(KeyCode::F3);
+        sim.dump("05-journal");
+        sim.press(KeyCode::Escape);
     }
 
     #[test]
