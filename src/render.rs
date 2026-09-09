@@ -1,11 +1,11 @@
-//! Renderer seam: the glyph buffer, palette, and the single text-pass renderer.
+//! The glyph buffer, the palette, and the copy into bevy-term's window terminal.
 
 use bevy::asset::RenderAssetUsages;
 use bevy::image::ImageSampler;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use bevy::sprite::Anchor;
-use bevy::text::LineBreak;
+use bevy_term::Term;
+use bevy_term::ratatui::style::{Color as TColor, Modifier, Style};
 
 // ---------- palette (SPEC §4) ----------
 
@@ -120,9 +120,6 @@ impl FromWorld for TileGrid {
         TileGrid::new(GRID_W, GRID_H)
     }
 }
-
-#[derive(Component)]
-pub(crate) struct AsciiScreen;
 
 #[derive(Component)]
 pub(crate) struct Scanlines;
@@ -254,100 +251,36 @@ pub(crate) fn toggle_scanlines(
     }
 }
 
+/// Copies the grid into the window terminal, glitched. Runs when the game logic
+/// redrew, or on a glitch tick so the corruption flickers while the level is above
+/// zero (a clean screen never re-copies). bevy-term paints the terminal from there.
 pub(crate) fn render_grid(
-    mut commands: Commands,
     grid: Res<TileGrid>,
     mut glitch: ResMut<Glitch>,
     time: Res<Time>,
-    screens: Query<Entity, With<AsciiScreen>>,
-    windows: Query<&Window>,
+    mut term: ResMut<Term>,
 ) {
-    // Redraw when the game logic did, or on a glitch tick so the corruption
-    // flickers while the level is above zero (a clean screen never re-renders).
     let tick = (time.elapsed_secs() * 6.0) as u64;
     if !grid.is_changed() && (glitch.level <= 0.0 || tick == glitch.last_tick) {
         return;
     }
     glitch.last_tick = tick;
-    for e in &screens {
-        commands.entity(e).despawn(); // recursive: also drops glyph spans
-    }
-    let win = windows.single().expect("primary window");
-    spawn_screen(&mut commands, &grid, win, glitch.level, tick);
-}
-
-fn spawn_screen(commands: &mut Commands, grid: &TileGrid, win: &Window, level: f32, tick: u64) {
-    // The default font (Fira Mono) is monospace with a 0.6-em advance and Bevy's
-    // default 1.2-em line height. Scale the font so the 120×33 grid fills the window
-    // with one even margin, and centre the block (SPEC §4: the origin comes from the
-    // window size and the font's advance).
-    let margin = 16.0;
-    let em_w = GRID_W as f32 * 0.6; // grid width in em
-    let em_h = GRID_H as f32 * 1.2; // grid height in em
-    let font_size = ((win.width() - 2.0 * margin) / em_w)
-        .min((win.height() - 2.0 * margin) / em_h);
-
-    let font = TextFont {
-        font_size: FontSize::Px(font_size),
-        ..default()
-    };
-    let layout = TextLayout::new(Justify::Left, LineBreak::NoWrap);
-
-    // Anchor::TOP_LEFT pins the block's top-left corner to the translation and the
-    // text runs right (+x) and down (−y), so this centres the grid.
-    let origin = Vec3::new(
-        -font_size * em_w / 2.0,
-        font_size * em_h / 2.0,
-        0.0,
-    );
-
-    commands
-        .spawn((
-            Text2d::new(""),
-            font.clone(),
-            layout,
-            Anchor::TOP_LEFT,
-            Transform::from_translation(origin),
-            AsciiScreen,
-        ))
-        .with_children(|parent| {
-            // Merge consecutive same-color glyphs into runs: per-cell spans made a full
-            // redraw despawn ~2,400 entities and re-layout them all, lagging keypresses.
-            let rows = grid.cells.len() / grid.w;
-            let mut run = String::new();
-            let mut cur: Option<Color> = None;
-            for y in 0..rows {
-                for x in 0..grid.w {
-                    let cell = grid.cells[y * grid.w + x];
-                    let g = glitch_glyph(cell, level, glitch_noise(x, y, tick));
-                    let color = if g.bold { bold_color(g.fg) } else { g.fg };
-                    if cur != Some(color) {
-                        if let Some(c) = cur {
-                            parent.spawn((
-                                TextSpan::new(std::mem::take(&mut run)),
-                                font.clone(),
-                                TextColor(c),
-                            ));
-                        }
-                        cur = Some(color);
-                    }
-                    run.push(g.ch);
+    let level = glitch.level;
+    term.draw(|frame| {
+        let buf = frame.buffer_mut();
+        let rows = grid.cells.len() / grid.w;
+        for y in 0..rows {
+            for x in 0..grid.w {
+                let g = glitch_glyph(grid.cells[y * grid.w + x], level, glitch_noise(x, y, tick));
+                let c = g.fg.to_srgba().to_u8_array();
+                let mut style = Style::new().fg(TColor::Rgb(c[0], c[1], c[2]));
+                if g.bold {
+                    style = style.add_modifier(Modifier::BOLD);
                 }
-                if y + 1 < rows {
-                    run.push('\n');
-                }
+                buf[(x as u16, y as u16)].set_char(g.ch).set_style(style);
             }
-            if let Some(c) = cur {
-                parent.spawn((TextSpan::new(run), font.clone(), TextColor(c)));
-            }
-        });
-}
-
-// ponytail: ANSI-style "bold = bright". Swap for a real bold font asset when
-// the hidden-letter mechanic needs true weight, not just brightness.
-fn bold_color(c: Color) -> Color {
-    let s = c.to_srgba();
-    Color::srgb(s.red * 0.4 + 0.6, s.green * 0.4 + 0.6, s.blue * 0.4 + 0.6)
+        }
+    });
 }
 
 // ---- tests (SPEC §7) ----

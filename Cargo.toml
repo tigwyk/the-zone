@@ -28,6 +28,7 @@ bevy = { version = "=0.19.1", default-features = false, features = [
     "std",
     "wav",
 ] }
+bevy-term = { path = "../bevy-term", features = ["window"] }
 ron = "0.12"
 serde = { version = "1", features = ["derive"] }
 

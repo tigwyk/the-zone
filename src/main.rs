@@ -196,21 +196,22 @@ fn main() {
             ..default()
         }),
         ..default()
-    }));
+    }))
+    .add_plugins(bevy_term::TermWindowPlugin {
+        width: render::GRID_W as u16,
+        height: render::GRID_H as u16,
+        ..default()
+    });
     // The window, the renderer and the polish. None of it is in `add_game`, so the
     // play-through tests still run headless.
     add_game(&mut app)
         .init_resource::<Glitch>()
-        .add_systems(Startup, (setup, spawn_scanlines, audio::load_cues))
+        .add_systems(Startup, (spawn_scanlines, audio::load_cues))
         .add_systems(
             Update,
             (drive_glitch, render_grid, toggle_scanlines, audio::play_cues).after(GameInput),
         )
         .run();
-}
-
-fn setup(mut commands: Commands) {
-    commands.spawn(Camera2d);
 }
 
 /// The glitch is presentation, so it lives here and not in `add_game`: it reads the
