@@ -7,11 +7,10 @@ Copy for the game page at `tigwyk.itch.io/the-zone`. Screenshots live in
 
 The Zone
 
-## Short text (one line, the card blurb)
+## Short text (one line, the card blurb — max 120 chars)
 
-You are a stalker walking into the Zone — a quarantined wasteland where physics
-has gone soft, artifacts are worth more than your life, and rumour says the centre
-grants your wish.
+You are a stalker in the Zone — a quarantined wasteland where physics has gone
+soft and the centre grants wishes.
 
 ## Classification / kind
 
