@@ -14,10 +14,17 @@ use crate::area::{VendorStock, ZoneData};
 use crate::liquid::Puddles;
 use crate::render::{TileGrid, PALETTE};
 use crate::run::{check, Outcome, Rng, RunState, BACKGROUNDS, LCK};
-use crate::screens::{draw_message, hint, row, title, wrap, PANEL_COL};
+use crate::screens::{draw_message, hint, row, title, wrap};
 use crate::sim::{FieldState, Fields, GameClock};
 
 const LIST_ROW: usize = 4;
+
+/// The memorial's detail panel starts much closer to the list than the shared
+/// `screens::PANEL_COL` (84): a row is only name + background + days, so pinning
+/// the panel at 84 left the middle of the screen empty. 40 clears the widest row.
+const MEMORIAL_PANEL: usize = 40;
+/// Wrap width for the panel text, leaving a right margin before the 120th column.
+const MEMORIAL_WRAP: usize = 76;
 
 /// GDD §4: the first two backgrounds are always there; the rest are earned.
 pub(crate) const ALWAYS_UNLOCKED: usize = 2;
@@ -268,9 +275,17 @@ pub(crate) fn build_memorial_grid(
     }
 
     if let Some(f) = fallen.get(sel) {
-        grid.text(PANEL_COL, 2, &f.cause, PALETTE.red, false);
-        for (i, line) in wrap(&f.note, 34).iter().enumerate() {
-            grid.text(PANEL_COL, 4 + i, line, PALETTE.desc, false);
+        // Wrap so neither the cause nor the note runs into the right edge and
+        // loses its tail.
+        let mut y = 2;
+        for line in wrap(&f.cause, MEMORIAL_WRAP) {
+            grid.text(MEMORIAL_PANEL, y, &line, PALETTE.red, false);
+            y += 1;
+        }
+        y += 1; // a breath between the cause and the note
+        for line in wrap(&f.note, MEMORIAL_WRAP) {
+            grid.text(MEMORIAL_PANEL, y, &line, PALETTE.desc, false);
+            y += 1;
         }
     }
     if !meta.lore.is_empty() {
@@ -384,6 +399,38 @@ mod tests {
         let mut meta = MetaProgress::default();
         bank(&mut meta, &run, &dir, "Radiation.", "");
         assert!(resume(&dir).is_none(), "you cannot reload out of dying");
+    }
+
+    #[test]
+    fn the_memorial_wraps_a_long_cause_instead_of_cutting_it_off() {
+        let mut grid = TileGrid::new(crate::render::GRID_W, crate::render::GRID_H);
+        let mut meta = MetaProgress::default();
+        // Longer than the panel is wide only on the old 84-column layout; the guard
+        // is that the whole sentence survives wherever the panel sits.
+        let cause = "Radiation. You glow, and then you stop.";
+        meta.memorial.push(Fallen {
+            name: "Sparrow".into(),
+            background: "Loner".into(),
+            days: 6,
+            cause: cause.into(),
+            note: String::new(),
+        });
+
+        build_memorial_grid(&mut grid, &meta, 0, "");
+
+        // Read the panel back row by row; a cause that ran off the right edge drops
+        // its tail, so the whole sentence has to survive.
+        let screen: String = (0..crate::render::GRID_H)
+            .map(|y| {
+                (MEMORIAL_PANEL..grid.w)
+                    .map(|x| grid.cells[y * grid.w + x].ch)
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(screen.contains(cause), "the cause ran off the panel:\n{screen}");
     }
 
     #[test]

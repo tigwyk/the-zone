@@ -884,8 +884,14 @@ fn combat_input(
     }
     if check_death(&mut act.run) {
         // A death in a fight is still a death: the memorial gets the name and the
-        // run is spent, exactly as dying anywhere else does (GDD §10).
+        // run is spent, exactly as dying anywhere else does (GDD §10). The log's
+        // last word is the death itself, so the memorial note reads in context.
         let cause = act.run.death.clone().unwrap_or_default();
+        act.message.0 = if act.message.0.is_empty() {
+            "You die.".into()
+        } else {
+            format!("{} You die.", act.message.0.trim_end())
+        };
         meta::bank(&mut act.meta, &act.run, &act.dir, &cause, &act.message.0);
         next_state.set(GameState::GameOver);
         return;
@@ -1753,6 +1759,12 @@ mod playthrough {
         // Dying in a fight still writes the memorial entry, name and all (GDD §10).
         assert_eq!(sim.meta().memorial.len(), 1, "a combat death is still a death");
         assert_eq!(sim.meta().memorial[0].name, name);
+        // And the note closes on the death, so it reads as the last log entry.
+        assert!(
+            sim.meta().memorial[0].note.ends_with("You die."),
+            "the note should close on the death:\n{}",
+            sim.meta().memorial[0].note
+        );
     }
 
     #[test]
