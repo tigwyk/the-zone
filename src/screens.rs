@@ -588,7 +588,9 @@ pub(crate) fn build_trade_grid(
         let empty = if buying { "The trader has nothing left." } else { "You have nothing to sell." };
         grid.text(2, LIST_ROW, empty, PALETTE.desc, false);
     }
-    for (i, stack) in list.iter().enumerate() {
+    let shown = window(sel, list.len(), PACK_ROWS);
+    for (line_no, i) in shown.clone().enumerate() {
+        let stack = &list[i];
         let item = &zone.items[&stack.id];
         let p = price(
             loot::value(stack, zone),
@@ -602,8 +604,9 @@ pub(crate) fn build_trade_grid(
         let label = format!("{:<60}{count}{p:>9} RU", loot::display_name(stack, zone));
         let rarity = stack.rarity();
         let bold = rarity >= Rarity::Warped;
-        row(grid, 0, LIST_ROW + i, i == sel, rarity.color(), bold, &label);
+        row(grid, 0, LIST_ROW + line_no, i == sel, rarity.color(), bold, &label);
     }
+    more(grid, LIST_ROW + PACK_ROWS, &shown, list.len());
 
     draw_message(grid, message);
     hint(grid, "Left/Right buy or sell   Up/Down select   Enter confirm   Esc leave");
@@ -947,6 +950,36 @@ mod tests {
         run.rep = HashMap::from([("loners".to_string(), -80)]);
         let msg = trade_one(&zone, &mut stock, &mut run, "trader", true, 0);
         assert!(msg.contains("will not trade"));
+    }
+
+    /// A shelf longer than the screen scrolls instead of running into the hint
+    /// and message rows.
+    #[test]
+    fn a_long_shelf_windows_instead_of_overwriting_the_hint_and_message() {
+        use crate::render::{TileGrid, GRID_W, GRID_H};
+
+        let (zone, _, run) = fixture();
+        let mut stock = VendorStock(HashMap::new());
+        let shelf: Vec<ItemStack> = (0..40).map(|uid| ItemStack::plain(uid, "bolt", 1)).collect();
+        stock.0.insert("trader".to_string(), shelf);
+
+        let mut grid = TileGrid::new(GRID_W, GRID_H);
+        build_trade_grid(
+            &mut grid,
+            &zone,
+            &stock,
+            &run,
+            &GameClock::default(),
+            "trader",
+            true,
+            39,
+            "a message",
+        );
+
+        let row = |y: usize| (0..GRID_W).map(|x| grid.cells[y * GRID_W + x].ch).collect::<String>();
+        assert!(row(HINT_ROW).contains("Left/Right"), "hint row overwritten: {}", row(HINT_ROW));
+        assert!(row(MESSAGE_ROW).contains("a message"), "message row overwritten: {}", row(MESSAGE_ROW));
+        assert!(row(HINT_ROW - 1).trim().is_empty(), "list leaked past the hint row");
     }
 
     /// Every screen writes into the one grid; this fails if a build function
