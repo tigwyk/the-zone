@@ -1,34 +1,35 @@
 // GDD 9: every wish has a literal reading and a corrupted one. Which you get
-// depends on Monolith standing and a hidden LCK check.
+// depends on Monolith standing and a hidden LCK check. Even the clean reading is
+// a loss: the Room grants the wish underneath the one you say out loud.
 {
     "riches": Ending(
         name: "The wish for money",
-        literal: "You walk out at dawn with more than you carried in, and you keep walking. Somewhere south there is a town that has never heard of the Zone, and a house in it with your name on the deed. You never go back. That is the whole of it, and it is enough.",
-        corrupted: "You walk out at dawn very rich. The notes are perfect. Every one of them is perfect in exactly the same way, down to the serial, and the first cashier who fans them out goes very quiet. They find you three months later, still counting.",
+        literal: "You walk out at dawn with more money than anyone in the camp has ever seen, and you keep walking until the Zone is behind you. In a town that has never heard of the Zone you buy a house and sit in it. It is quiet. You listen for the wind through the reeds, and it is not there, and you understand that you never asked for money. But it is too late to go back and ask again.",
+        corrupted: "You walk out at dawn very rich. Every note is perfect, down to the serial, and the first cashier who fans them out goes very quiet and reaches for a telephone. They find you three months later in a room you paid for in cash, still counting, with nowhere left to go.",
     ),
     "health": Ending(
         name: "The wish to be whole",
-        literal: "The ache goes out of your joints like water out of a boot. The counter at your belt ticks down to nothing and stays there. You are forty again, and you are outside, and the wind is only wind.",
-        corrupted: "Nothing hurts. Nothing has hurt since the light. Not the cold, not the burn on your hand, not the thing in the reeds that got two of your fingers before you noticed it was there. You are very healthy. You will be healthy for a long time.",
+        literal: "The pain goes out of you like water out of a boot, and the counter at your belt ticks down to nothing and stays there. You stand at the edge of the camp feeling well, and the feeling is worse than the sickness ever was. The ache you came here to cure was never in your body.",
+        corrupted: "Nothing hurts. Nothing has hurt since the light - not the cold, not the burn on your hand, not the thing in the reeds that took two of your fingers before you noticed it was there. You are perfectly healthy and perfectly empty, and you will be for a very long time, and nothing you do will ever reach you again.",
     ),
     "remembered": Ending(
         name: "The wish to be remembered",
-        literal: "They put your name on the plank at the camp above the others, and for a while every stalker who comes through reads it and asks. That is not nothing. Most of us go in the ground under a number.",
-        corrupted: "They remember you. They remember you at the checkpoints and in the bar and in the long grass at night, and what they remember is a warning, and mothers in the outer villages use your name to make children come inside before dark.",
+        literal: "They carve your name on the plank at the camp, above the others, and for a season every stalker who passes reads it and asks who you were. Then the weather gets at the wood, and a new plank is nailed over yours, and your name means nothing to anyone who did not already know you. You are remembered the way a crack in the road is remembered.",
+        corrupted: "They remember you. They remember you at the checkpoints and in the bar and in the long grass at night, and what they remember is a warning, and mothers in the outer villages use your name to make their children come inside before dark, and the children grow up and pass it on until your name is simply what the dark is called.",
     ),
     "power": Ending(
         name: "The wish for strength",
-        literal: "Whatever the Zone put in your hands, it stays there. The mutants on the rim go quiet when you come down the track. You are not the biggest thing in here, but you are no longer prey, and you sleep through the night.",
+        literal: "Whatever the Zone put in your hands, it stays. The things on the rim go quiet when you come down the track, and you stop being prey and become something they steer around. It changes nothing. The fear you carried all this way did not come from them, and it does not leave.",
         corrupted: "You are strong. You are so strong that the patrols stop firing and start running, and after a while the running is the part you look forward to. The last human thought you have is that you should turn back. You do not turn back.",
     ),
     "refuse": Ending(
         name: "You did not ask",
-        literal: "You stand in the light with your mouth shut. Whatever is in here has been granting wishes to men who did not know what they wanted since before your grandfather, and you find you would rather owe it nothing. You turn around. The walk out is long, and it is yours.",
-        corrupted: "You stand in the light with your mouth shut, and something in you asks anyway, in a voice you have not used since you were small, for a thing you would never say aloud. You do not find out what it was until much later.",
+        literal: "You stand in the light with your mouth shut. Whatever lives here has been granting the wishes men will not say out loud since before your grandfather, and you find you would rather owe it nothing. You turn around and walk out. The walk is long and it is yours, and it changes nothing. The wish you did not make is still in there, waiting for the next one.",
+        corrupted: "You stand in the light with your mouth shut, and something in you asks anyway, in a voice you stopped using when you were small, for a thing you would never say aloud. You do not learn what it was until much later, and by then it has already been granted.",
     ),
     "monolith": Ending(
         name: "The Monolith takes you",
-        literal: "You do not have to decide anything ever again. The voice that has been under everything since the checkpoint resolves into words, and the words are kind, and you set down your rifle and go to stand with the others who are already there.",
-        corrupted: "You do not have to decide anything ever again. There is no voice. There was never a voice. There is only the light, and the shape it makes of you, and the next stalker who walks in here will see you standing at the wall and think you are part of it.",
+        literal: "You do not have to decide anything ever again. The voice that has run under everything since the checkpoint resolves into words, and the words are kind, and you set down your rifle and go to stand with the others who are already there. It is warm, and it is the last thing you will ever remember being.",
+        corrupted: "You do not have to decide anything ever again. There is no voice. There never was. There is only the light and the shape it is making of you, and the next stalker who walks in here will see you at the wall and think you were always part of it.",
     ),
 }

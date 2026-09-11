@@ -185,18 +185,33 @@ fn add_game(app: &mut App) -> &mut App {
 
 fn main() {
     let mut app = App::new();
-    app.add_plugins(DefaultPlugins.set(WindowPlugin {
-        primary_window: Some(Window {
-            title: "The Zone".into(),
-            // 1280×720 logical, with the native scale factor respected: the fixed
-            // grid renders at the same readable size on a 1× monitor and a Retina
-            // display, instead of a quarter-sized window (the old 1.0 override).
-            resolution: WindowResolution::new(1280, 720),
-            present_mode: PresentMode::AutoVsync,
-            ..default()
-        }),
-        ..default()
-    }))
+    app.add_plugins(
+        DefaultPlugins
+            .set(AssetPlugin {
+                // The data files load from `assets/` relative to the working
+                // directory (`ZoneData::from_world`), so the cues do too. Bevy's
+                // default anchors on the executable's directory, which a bare
+                // `target/.../the-zone.exe` misses.
+                file_path: std::env::current_dir()
+                    .unwrap_or_default()
+                    .join("assets")
+                    .to_string_lossy()
+                    .into_owned(),
+                ..default()
+            })
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "The Zone".into(),
+                    // 1280×720 logical, with the native scale factor respected: the fixed
+                    // grid renders at the same readable size on a 1× monitor and a Retina
+                    // display, instead of a quarter-sized window (the old 1.0 override).
+                    resolution: WindowResolution::new(1280, 720),
+                    present_mode: PresentMode::AutoVsync,
+                    ..default()
+                }),
+                ..default()
+            }),
+    )
     .add_plugins(bevy_term::TermWindowPlugin {
         width: render::GRID_W as u16,
         height: render::GRID_H as u16,
@@ -309,11 +324,11 @@ fn main_menu_input(
                     act.stock.0 = save.stock;
                     act.puddles.0 = save.puddles;
                     *act.rng = save.rng;
-                    act.message.0 = "You pick up where you put it down.".into();
+                    act.message.0 = "You pick up where you put it down, and it is still there, the way it always is.".into();
                     next_state.set(GameState::Area);
                     return;
                 }
-                act.message.0 = "That run is gone. The Zone kept it.".into();
+                act.message.0 = "That run is gone. The Zone kept it, and it keeps everything.".into();
             }
             NEW_GAME => {
                 next_state.set(GameState::CharacterCreation);
@@ -387,7 +402,7 @@ fn creation_input(
                 act.clock.schedule(&act.run, &mut act.rng);
                 reveal_secrets(&here, &mut act.run, &act.zone, &mut act.rng);
                 act.run.discovered.insert(here);
-                act.message.0 = "You sign the ledger and walk in.".into();
+                act.message.0 = "You sign the ledger and walk in, and the ledger is already full of names that will not be coming out.".into();
                 next_state.set(GameState::Area);
                 return;
             }
@@ -607,7 +622,7 @@ fn menu_input(
         // GDD §10: put the run down. Leaving by any other door writes it too
         // (`save_on_exit`), so this is only the reassurance that it is written.
         act.message.0 = if suspend_run(&act) {
-            "Written down. Close the window when you like.".into()
+            "Written down. Close the window when you like. It will still be here when you come back, and so will everything else.".into()
         } else {
             "The Zone will not let you put it down here.".into()
         };
@@ -669,7 +684,7 @@ fn perform(action: &Action, act: &mut Act, next_state: &mut NextState<GameState>
         Action::Say(s) => act.message.0 = s.clone(),
         Action::Rest => {
             if act.run.rubles < REST_COST {
-                act.message.0 = format!("A bunk costs {REST_COST} RU. You are short.");
+                act.message.0 = format!("A bunk costs {REST_COST} RU. You are short, and the Zone does not run a tab.");
                 return false;
             }
             act.run.rubles -= REST_COST;
@@ -689,7 +704,7 @@ fn perform(action: &Action, act: &mut Act, next_state: &mut NextState<GameState>
         }
         Action::SetFlag(flag) => {
             act.run.flags.insert(flag.clone());
-            act.message.0 = "You read it twice, and keep it.".into();
+            act.message.0 = "You read it twice, and keep it, and wish you had not.".into();
         }
         Action::Talk(npc) => {
             dialogue::start(npc, &mut act.dialogue, &act.zone);
@@ -716,27 +731,27 @@ fn perform(action: &Action, act: &mut Act, next_state: &mut NextState<GameState>
                 let rarity = stack.rarity();
                 act.run.add_stack(stack);
                 if rarity == loot::Rarity::Plain {
-                    format!("You come away with the {name}.")
+                    format!("You come away with the {name}. It was left for someone, and that someone is you now.")
                 } else {
                     format!("You come away with the {name}. The Zone has been at it.")
                 }
             } else {
-                "You have already had that out of here.".into()
+                "You have already had that out of here. It does not come back.".into()
             };
         }
         Action::Spend(item, count) => {
             act.message.0 = if act.run.take_item(item, *count) {
-                format!("You hand over the {}.", act.zone.items[item].name)
+                format!("You hand over the {}, and it is one less thing you are carrying.", act.zone.items[item].name)
             } else {
-                "You do not have that to give.".into()
+                "You do not have that to give, and it would not have helped.".into()
             };
         }
         Action::Lore(entry) => {
             let lore = &act.zone.lore[entry];
             act.message.0 = if act.run.lore.insert(entry.clone()) {
-                format!("You turn up something: {}. It is in the journal.", lore.title)
+                format!("You turn up something you will wish you had not: {}. It is in the journal.", lore.title)
             } else {
-                format!("{} is already in the journal.", lore.title)
+                format!("{} is already in the journal, and you already know it by heart.", lore.title)
             };
         }
         Action::Memorial => {
@@ -1000,7 +1015,7 @@ fn board_input(
     if n > 0 {
         if keys.just_pressed(KeyCode::Enter) {
             let id = offered[act.board.sel.min(n - 1)].to_string();
-            act.message.0 = format!("You take the job: {}.", act.zone.quests[&id].name);
+            act.message.0 = format!("You take the job: {}. Somebody has to, and it is always somebody.", act.zone.quests[&id].name);
             act.run.quests_taken.insert(id);
             act.board.sel = 0;
             changed = true;
@@ -1057,7 +1072,7 @@ fn map_input(
             return;
         } else {
             act.message.0 = format!(
-                "{} is not next to here. You would have to walk it.",
+                "{} is not next to here. You would have to walk it, and the walking is the part that kills.",
                 act.zone.areas[&dest].name
             );
         }
@@ -1172,7 +1187,7 @@ fn inventory_input(
         if keys.just_pressed(KeyCode::Enter) {
             // GDD §8: rummaging in a fight costs 4 AP, and may hand the turn over.
             if act.combat.active && act.combat.ap < combat::AP_ITEM {
-                act.message.0 = "No AP left for that.".into();
+                act.message.0 = "No AP left for that. You have run out of the only thing that keeps you moving.".into();
             } else {
                 let (msg, acted) = use_item(&act.zone, &mut act.run, cursor.0, &mut act.rng);
                 act.message.0 = msg;

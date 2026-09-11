@@ -81,11 +81,11 @@ pub(crate) fn start(
         let per = attr(run, zone, PER) * 10;
         if !matches!(check(per, 0, rng), Outcome::Success | Outcome::CritSuccess) {
             let opener = enemy_turn(&enemy, combat, run, zone, rng);
-            return format!("The air comes apart and something is on you. {opener}");
+            return format!("The air comes apart and something is already on you, and you understand you were never alone. {opener}");
         }
-        return format!("You catch the shimmer a moment early. A {}.", enemy.name);
+        return format!("You catch the shimmer a moment early, and it does not save you. A {}.", enemy.name);
     }
-    format!("A {} comes at you.", enemy.name)
+    format!("A {} comes at you out of the dark, and it has been waiting.", enemy.name)
 }
 
 // ---- what the player can do right now ----
@@ -320,7 +320,7 @@ pub(crate) fn act(
         let will = attr(run, zone, INT) * 10;
         if !matches!(check(will, 0, rng), Outcome::Success | Outcome::CritSuccess) {
             combat.ap -= AP_ATTACK;
-            let mut lost = format!("The {} is in your head. The moment goes.", enemy.name);
+            let mut lost = format!("The {} is in your head, and for a moment you are not. The moment goes.", enemy.name);
             if let Some(theirs) = end_turn(combat, run, zone, rng) {
                 lost = format!("{lost} {theirs}");
             }
@@ -346,9 +346,9 @@ pub(crate) fn act(
             let away = |o: &Outcome| matches!(o, Outcome::Success | Outcome::CritSuccess);
             if away(&quiet) || away(&legs) {
                 combat.active = false;
-                return format!("You break contact and lose the {}.", enemy.name);
+                return format!("You break contact and lose the {}. It will remember your smell.", enemy.name);
             }
-            "You turn to run and it is still there.".into()
+            "You turn to run, and it is still there, and it was never going to let you.".into()
         }
     };
 
@@ -386,17 +386,17 @@ fn attack(
     let out = check_skill(run, hand.skill.index(), modifier, crit_on, rng);
 
     match out {
-        Outcome::Fail => format!("You miss the {}.", enemy.name),
-        Outcome::CritFail => "The shot goes wide and you lose your footing.".into(),
+        Outcome::Fail => format!("You miss the {}, and it does not flinch.", enemy.name),
+        Outcome::CritFail => "The shot goes wide and you lose your footing, and the ground is glad to have you.".into(),
         Outcome::Success | Outcome::CritSuccess => {
             let crit = out == Outcome::CritSuccess;
             let armor = pierced(enemy.armor, hand.pierce);
             let hit = damage(hand.dice, hand.damage, armor, crit, rng);
             combat.hp -= hit;
             if crit {
-                format!("You hit the {} clean. {hit} damage.", enemy.name)
+                format!("You hit the {} clean, and it is the last thing it expected. {hit} damage.", enemy.name)
             } else {
-                format!("You hit the {}. {hit} damage.", enemy.name)
+                format!("You hit the {}. {hit} damage. It does not fall.", enemy.name)
             }
         }
     }
@@ -421,8 +421,8 @@ fn kill(
         run.add_stack(stack);
     }
     match best {
-        Some(name) => format!("The {} goes down, and leaves a {name}.", enemy.name),
-        None => format!("The {} goes down.", enemy.name),
+        Some(name) => format!("The {} goes down, and leaves a {name}, which is all anyone leaves here.", enemy.name),
+        None => format!("The {} goes down, and the quiet comes back a little louder.", enemy.name),
     }
 }
 
@@ -463,9 +463,9 @@ fn enemy_turn(
             - (attr(run, zone, AGI) - 5) * FASTER_PER_AP;
         if matches!(check(chance, 0, rng), Outcome::Success | Outcome::CritSuccess) {
             combat.active = false;
-            return format!("The {} breaks and is gone.", enemy.name);
+            return format!("The {} breaks and is gone, into the dark it came from.", enemy.name);
         }
-        return format!("The {} turns to run, but you head it off.", enemy.name);
+        return format!("The {} turns to run, but you head it off, and it knows what comes next.", enemy.name);
     }
 
     // Attack, as often as the AP allows.
@@ -473,19 +473,19 @@ fn enemy_turn(
         ap -= AP_ATTACK;
         match check(enemy.skill, 0, rng) {
             Outcome::Fail | Outcome::CritFail => {
-                said.push(format!("The {} misses.", enemy.name));
+                said.push(format!("The {} misses, and the air where you were standing is colder.", enemy.name));
             }
             out => {
                 let crit = out == Outcome::CritSuccess;
                 let hit = damage(enemy.dice, 0, armor_of(run, zone), crit, rng);
                 run.hp -= hit;
-                said.push(format!("The {} hits you for {hit}.", enemy.name));
+                said.push(format!("The {} hits you for {hit}, and you feel it in your teeth.", enemy.name));
             }
         }
     }
 
     if said.is_empty() {
-        format!("The {} circles.", enemy.name)
+        format!("The {} circles, and waits, and it has more time than you.", enemy.name)
     } else {
         said.join(" ")
     }

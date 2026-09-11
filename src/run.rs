@@ -87,7 +87,7 @@ pub(crate) struct Background {
 pub(crate) const BACKGROUNDS: [Background; 4] = [
     Background {
         name: "Loner",
-        blurb: "You came for the money and stayed for the quiet.",
+        blurb: "You came for the money, and the money never came, and you stayed for the quiet.",
         attr: (END, 1),
         skills: &[(8, 10)],
         rep: &[("loners", 20)],
@@ -101,7 +101,7 @@ pub(crate) const BACKGROUNDS: [Background; 4] = [
     },
     Background {
         name: "Ecologist",
-        blurb: "You read the Zone in numbers before you ever smelled it.",
+        blurb: "You read the Zone in numbers before you ever smelled it, and the numbers never added up.",
         attr: (INT, 1),
         skills: &[(7, 10), (4, 10)],
         rep: &[("ecologists", 30)],

@@ -56,16 +56,16 @@ fn bench(recipe: &RecipeData, run: &mut RunState, zone: &ZoneData, out: Outcome)
     match out {
         Outcome::CritSuccess => {
             run.add_item(&out_id, out_n * 2);
-            format!("You work fast and well. You make {} of the {}.", out_n * 2, zone.items[&out_id].name)
+            format!("You work fast and well, and it is the only thing you have done right all week. You make {} of the {}.", out_n * 2, zone.items[&out_id].name)
         }
         Outcome::Success => {
             run.add_item(&out_id, out_n);
-            format!("You make the {}.", zone.items[&out_id].name)
+            format!("You make the {}, and it is already not enough.", zone.items[&out_id].name)
         }
-        Outcome::Fail => "You spend the parts and ruin the job.".into(),
+        Outcome::Fail => "You spend the parts and ruin the job, and the bench does not care.".into(),
         Outcome::CritFail => {
             run.rads = (run.rads + 15).min(1000);
-            "The bench bites. You spend the parts and take rads.".into()
+            "The bench bites back. You spend the parts and take rads, and it takes something else you cannot name.".into()
         }
     }
 }
@@ -83,14 +83,14 @@ fn forge(recipe: &RecipeData, run: &mut RunState, zone: &ZoneData, out: Outcome,
     match out {
         Outcome::CritSuccess => {
             mark(run, uid, Roll { affix: affix_id.clone(), magnitude: affix.range.1 });
-            format!("The {} settles at full strength.", zone.affixes[&affix_id].name)
+            format!("The {} settles at full strength, and the gear drinks it without a sound.", zone.affixes[&affix_id].name)
         }
         Outcome::Success => {
             let magnitude = roll_magnitude(&affix.range, rng);
             mark(run, uid, Roll { affix: affix_id.clone(), magnitude });
             format!("The gear drinks it in: {}.", zone.affixes[&affix_id].name)
         }
-        Outcome::Fail => "The artifact sputters out. The gear is unchanged.".into(),
+        Outcome::Fail => "The artifact sputters out and dies in your hand. The gear is unchanged, and you are not.".into(),
         Outcome::CritFail => {
             // The Zone's spite. If it is already hot, there is nothing new to add.
             let already_hot = run.stack(uid).map_or(false, |g| g.affixes.iter().any(|r| r.affix == "hot"));

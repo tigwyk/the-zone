@@ -3,82 +3,82 @@
 {
     "the_first_day": Lore(
         title: "The first day",
-        text: "Nobody agrees what happened. The men who were on shift are not available to ask, and the men who were not on shift all tell it differently. What everyone agrees on is the light, and that it came up from the ground rather than down from the sky.",
+        text: "Nobody agrees what happened. The men who were on shift are not available to ask, and the men who were not all tell it a different way, and the ones who saw the light up close have mostly stopped speaking altogether. The only thing anyone agrees on is the light, and that it came up out of the ground, and that nothing has been right since.",
     ),
     "the_cordon": Lore(
         title: "Why the wire holds",
-        text: "The wire does not hold. It has never held. What holds is that most people who go past it do not come back, and the ones who do come back are worse company than they were.",
+        text: "The wire does not hold. It never held. What holds is that most people who cross it do not come back, and the ones who do spend the rest of their lives finding a way back in. Nobody leaves the Zone. Some people only walk out.",
     ),
     "bolts": Lore(
         title: "On bolts",
-        text: "A bolt costs five rubles and a bolt has saved every stalker in this bar at least once. Men who are too proud to throw them are a category of person the Zone deals with quickly and without comment.",
+        text: "A bolt costs five rubles, and every man in this bar has been saved by one at least once. A man too proud to throw a bolt is a man the Zone deals with quietly and without comment, and his boots are usually the first thing back.",
     ),
     "the_hatch": Lore(
         title: "Under the camp",
-        text: "There was a bunker under the camp before there was a camp. The man who dug it out kept a log in a careful hand right up until the last page, which is not careful at all.",
+        text: "There was a bunker under the camp before there was a camp. The man who dug it out kept a log in a careful hand, day after day, right up to the last page, which stops mid-sentence and is not careful at all. Nobody knows where he went, or whether he ever meant to.",
     ),
     "whirligigs": Lore(
         title: "Reading a whirligig",
-        text: "The grass leans in. That is the whole trick, and it is enough, and men still walk into them every season because grass leaning is a small thing to notice when you are tired.",
+        text: "The grass leans in toward nothing at all. That is the whole trick, and it is enough, and men still walk into them every season, because leaning grass is a small thing to notice when you are tired and wet and thinking about home.",
     ),
     "burners": Lore(
         title: "Reading a burner",
-        text: "You will feel it before you see it, and by then you are close enough that turning around is the wrong move. Go sideways. Always sideways.",
+        text: "You will feel it before you see it, and by the time you feel it you are already close enough that turning around is the wrong move. Go sideways. Always sideways. The man who taught me that did not go sideways.",
     ),
     "electros": Lore(
         title: "Reading an electro",
-        text: "Crackle and a smell like a struck match. They kill electronics first and you second, which means your detector goes quiet at exactly the moment you need it loudest.",
+        text: "Crackle, and a smell like a struck match. They kill electronics first and you second, so your detector goes quiet at exactly the moment you need it loudest, and you learn the worst lesson in the Zone: that silence is how it tells you to stop.",
     ),
     "acid": Lore(
         title: "Reading the punch",
-        text: "It sits in the low ground and it looks like standing water because it is standing water, mostly. What is in the rest of it will take your boots off with your feet still in them.",
+        text: "It sits in the low ground and it looks like standing water, because it is standing water, mostly. The rest of it will take your boots off with your feet still in them, and then it will take the feet. Do not trust the low ground.",
     ),
     "rifts": Lore(
         title: "Reading nothing at all",
-        text: "The space-time ones have no tell. None. Anyone who says they can read one is selling something, and the thing they are selling will get you put somewhere you did not agree to be.",
+        text: "The space-time ones have no tell. None. Anyone who says they can read one is selling something, and the thing they are selling will get you put somewhere you did not agree to be, and nobody will come and put you back.",
     ),
     "artifacts": Lore(
         title: "What an artifact is",
-        text: "Nobody knows. The Ecologists have a word for it that is six syllables long and means nobody knows. What is certain is that it will make you stronger and it will count against you the whole time you carry it.",
+        text: "Nobody knows. The Ecologists have a word for it, six syllables long, and it means nobody knows. What is certain is that it will make you stronger and it will count against you the whole time you carry it, and you will carry it anyway, because stronger is the only thing left in here to want.",
     ),
     "the_price": Lore(
         title: "The carrying cost",
-        text: "Every artifact is a loan. The interest is paid in rads and the Zone does not accept late payment, only early death.",
+        text: "Every artifact is a loan. The interest is paid in rads, and the Zone does not take late payment, only early death, and everyone who carries one dies owing.",
     ),
     "emissions": Lore(
         title: "Before an emission",
-        text: "An hour, if you are lucky and paying attention. The dogs go quiet first. If you are counting on the sky to tell you, you have already left it too late.",
+        text: "An hour, if you are lucky and paying attention. The dogs go quiet first, then the birds, and then the wind stops pretending. If you are counting on the sky to tell you, you have already left it too late.",
     ),
     "duty": Lore(
         title: "On Duty",
-        text: "They believe the Zone should be contained, and they are not wrong, and they will shoot you for being on the wrong side of a line they drew last Tuesday.",
+        text: "They believe the Zone should be contained, and they are not wrong, and they will shoot you for standing on the wrong side of a line they drew last Tuesday. They are right, and it does not matter, and it has never mattered.",
     ),
     "freedom": Lore(
         title: "On Freedom",
-        text: "They believe the Zone should be open to everyone. They have never explained what everyone is supposed to do once they get here, and they get very tired of being asked.",
+        text: "They believe the Zone should be open to everyone. They have never explained what everyone is supposed to do once they get here, and they get very tired of being asked, because there is no answer, and asking only reminds them.",
     ),
     "bandits": Lore(
         title: "On the Junkyard",
-        text: "There is no ideology in the Junkyard, which some stalkers find restful. They will take your kit and leave you your boots, on the theory that a man walking out is a man who might come back with more kit.",
+        text: "There is no ideology in the Junkyard, which some stalkers find restful. They will take your kit and leave you your boots, on the theory that a man who walks out is a man who might come back with more kit, and they are always right, eventually.",
     ),
     "ecologists": Lore(
         title: "On the Lab",
-        text: "They came to measure it. Ten years of measurements and the graphs still do not close, and the ones who have been here longest have stopped talking about going home.",
+        text: "They came to measure it. Ten years of measurements and the graphs still do not close, and the ones who have been here longest have stopped talking about going home, because after a while home stops being a place and becomes a word.",
     ),
     "monolith": Lore(
         title: "On the Monolith",
-        text: "They are not a faction. They are what the centre does to people who listen to it long enough, and every one of them was somebody's friend on the way in.",
+        text: "They are not a faction. They are what the centre does to people who listen to it long enough, and every one of them was somebody's friend on the way in. The worst part is that they look at peace. That is what takes the rest.",
     ),
     "the_radar": Lore(
         title: "The antenna",
-        text: "It transmits. That much is measurable. What it transmits is a question that has cost three expeditions, and the third one is still technically out there.",
+        text: "It transmits. That much is measurable. What it transmits is a question that has already cost three expeditions, and the third one is still technically out there, and the men who stayed home can still hear it in their sleep.",
     ),
     "the_room": Lore(
         title: "What the Room is for",
-        text: "It grants wishes. Not the one you say out loud - the one underneath, the one you have been carrying since before you could name it. This is why the men who get there and ask for money are the lucky ones.",
+        text: "It grants wishes. Not the one you say out loud - the one underneath, the one you have been carrying since before you could name it, the one you pretend you do not have. This is why the men who reach it and ask for money are the lucky ones: the thing underneath what they ask for is small enough to survive.",
     ),
     "the_walk_out": Lore(
         title: "Going home",
-        text: "Every stalker means to do one more run. The ones who actually leave do it on an ordinary morning, without telling anybody, and are never mentioned again except as proof that it can be done.",
+        text: "Every stalker means to do one more run. The ones who actually leave do it on an ordinary morning, without telling anybody, and are never mentioned again except as proof that it can be done. What nobody says is that most of them come back, because out there the Zone is still in them.",
     ),
 }

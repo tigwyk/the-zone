@@ -196,7 +196,7 @@ pub(crate) fn build_board_grid(
 
     let ids = offered(zone, run, &board.faction);
     let entries: Vec<(String, String)> = ids.iter().map(|id| job_row(zone, id)).collect();
-    list(grid, &entries, board.sel, "Nothing on the board today.");
+    list(grid, &entries, board.sel, "Nothing on the board today, and nothing will change that.");
     draw_message(grid, message);
     hint(grid, "Up/Down choose   Enter take the job   Esc leave the board");
     draw_chrome(grid, run, clock);
@@ -214,7 +214,7 @@ pub(crate) fn build_journal_grid(
     title(grid, "JOURNAL");
 
     let entries = journal_entries(zone, run);
-    list(grid, &entries, sel, "Nothing carried, and nothing learned yet.");
+    list(grid, &entries, sel, "Nothing carried, and nothing learned yet, and that is its own kind of mercy.");
 
     // Standing, which is the other half of what a journal is for.
     let mut y = 2;

@@ -265,7 +265,7 @@ pub(crate) fn build_memorial_grid(
     title(grid, "THE MEMORIAL");
 
     if meta.memorial.is_empty() {
-        grid.text(2, LIST_ROW, "No names yet. You are the first.", PALETTE.desc, false);
+        grid.text(2, LIST_ROW, "No names yet. You are the first, and you will not be the last.", PALETTE.desc, false);
     }
     // Newest first: the last one in is the one people are still talking about.
     let fallen: Vec<&Fallen> = meta.memorial.iter().rev().collect();

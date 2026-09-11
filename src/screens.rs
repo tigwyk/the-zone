@@ -133,7 +133,7 @@ pub(crate) fn build_main_menu_grid(
 ) {
     grid.clear();
     title(grid, "THE ZONE");
-    grid.text(0, 2, "Nobody comes back the same.", PALETTE.desc, false);
+    grid.text(0, 2, "Nobody comes back the same, and most do not come back at all.", PALETTE.desc, false);
     for (i, entry) in entries.iter().enumerate() {
         row(grid, 0, LIST_ROW + i, i == sel, PALETTE.menu, false, entry);
     }
@@ -389,7 +389,7 @@ pub(crate) fn use_item(zone: &ZoneData, run: &mut RunState, index: usize, rng: &
         ItemKind::Heal(n) => {
             let cap = run.max_hp - run.hp;
             if cap == 0 {
-                return ("You are not hurt.".into(), false);
+                return ("You are not hurt, and you will be.".into(), false);
             }
             let (amount, out) = med_effect(run, n, rng);
             let healed = cap.min(amount);
@@ -404,7 +404,7 @@ pub(crate) fn use_item(zone: &ZoneData, run: &mut RunState, index: usize, rng: &
         }
         ItemKind::Antirad(n) => {
             if run.rads == 0 {
-                return ("You are clean.".into(), false);
+                return ("You are clean, for now.".into(), false);
             }
             let (amount, out) = med_effect(run, n, rng);
             let cleared = run.rads.min(amount);
@@ -419,12 +419,24 @@ pub(crate) fn use_item(zone: &ZoneData, run: &mut RunState, index: usize, rng: &
         ItemKind::Weapon { .. } => {
             let off = run.weapon == Some(uid);
             run.weapon = if off { None } else { Some(uid) };
-            (format!("You {} the {name}.", if off { "stow" } else { "ready" }), true)
+            let verb = if off { "stow" } else { "ready" };
+            let tail = if off {
+                "The cold finds the empty place at once."
+            } else {
+                "It does not make you safer, only armed."
+            };
+            (format!("You {verb} the {name}. {tail}"), true)
         }
         ItemKind::Armor(_) => {
             let off = run.armor == Some(uid);
             run.armor = if off { None } else { Some(uid) };
-            (format!("You {} the {name}.", if off { "take off" } else { "put on" }), true)
+            let verb = if off { "take off" } else { "put on" };
+            let tail = if off {
+                "The cold finds you at once."
+            } else {
+                "It is heavier than it looks."
+            };
+            (format!("You {verb} the {name}. {tail}"), true)
         }
         // Artifacts work by being carried; there is nothing to press (GDD §6).
         ItemKind::Artifact { rads, .. } => (
@@ -435,7 +447,7 @@ pub(crate) fn use_item(zone: &ZoneData, run: &mut RunState, index: usize, rng: &
         // Fitting is what a mod is for; it goes on what you are already using.
         ItemKind::Mod { fits, .. } => fit_mod(zone, run, &id, fits),
         ItemKind::Ammo { caliber, .. } => load_gun(zone, run, &id, caliber),
-        ItemKind::Misc => (format!("The {name} is not much use here."), false),
+        ItemKind::Misc => (format!("The {name} is not much use here, and neither are you."), false),
     }
 }
 
@@ -460,7 +472,7 @@ fn fit_mod(zone: &ZoneData, run: &mut RunState, id: &str, fits: Fits) -> (String
     }
     stack.mods.push(id.to_string());
     run.take_item(id, 1);
-    (format!("You fit the {name} to the {onto}."), true)
+    (format!("You fit the {name} to the {onto}, and it fits too well."), true)
 }
 
 /// Whether a mod of this `fits` belongs on this stack.
@@ -589,7 +601,7 @@ pub(crate) fn build_trade_grid(
 
     let list = trade_list(stock, run, vendor_id, buying);
     if list.is_empty() {
-        let empty = if buying { "The trader has nothing left." } else { "You have nothing to sell." };
+        let empty = if buying { "The trader has nothing left, and neither does anyone else." } else { "You have nothing to sell, and nothing anyone would want." };
         grid.text(2, LIST_ROW, empty, PALETTE.desc, false);
     }
     let shown = window(sel, list.len(), PACK_ROWS);
@@ -679,7 +691,7 @@ pub(crate) fn trade_one(
             Some(slot) => slot.count += 1,
             None => shelf.push(sold),
         }
-        format!("You sell the {name} for {p} RU.")
+        format!("You sell the {name} for {p} RU, and a part of you goes with it.")
     }
 }
 
@@ -800,7 +812,7 @@ pub(crate) fn build_gameover_grid(
         grid.text(22, 14 + i, value, PALETTE.status, false);
     }
 
-    grid.text(0, 22, "The next one will read your name at the camp.", PALETTE.dim, false);
+    grid.text(0, 22, "The next one will read your name at the camp, and then forget it.", PALETTE.dim, false);
     hint(grid, "Esc back to the menu");
 }
 

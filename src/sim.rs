@@ -184,11 +184,11 @@ fn emission(
 ) -> String {
     let sheltered = zone.areas[area_id].shelter;
     let message = if sheltered {
-        "The sky burns. You wait it out under cover.".to_string()
+        "The sky burns overhead. You wait it out under cover and do not look up.".to_string()
     } else {
         run.rads += EMISSION_RADS;
         run.hp -= run.max_hp / 2;
-        "The sky burns and the air cooks you. You should have found cover.".to_string()
+        "The sky burns and the air cooks you. You should have found cover, and now you are learning why.".to_string()
     };
 
     // An emission restocks the vendors and reshuffles the fields (GDD §5).
@@ -208,7 +208,7 @@ pub(crate) fn check_death(run: &mut RunState) -> bool {
     if run.rads >= RAD_DEATH {
         run.death = Some("Radiation. You glow, and then you stop.".into());
     } else if run.hp <= 0 {
-        run.death = Some("Your wounds finish what the Zone started.".into());
+        run.death = Some("Your wounds do what the Zone could not, and you lie down.".into());
     }
     run.death.is_some()
 }
@@ -305,17 +305,17 @@ pub(crate) fn scan(
         Outcome::CritSuccess => {
             state.scanned = true;
             state.artifact = !taken;
-            format!("You read the {} whole. Something glints in it.", anomaly.name)
+            format!("You read the {} whole, and you wish you had not. Something glints in it.", anomaly.name)
         }
         Outcome::Success => {
             state.scanned = true;
-            format!("The {} shows itself. You can see a way through.", anomaly.name)
+            format!("The {} shows itself, and the way through is a line you will have to trust.", anomaly.name)
         }
-        Outcome::Fail => "You cannot make sense of the ground here.".into(),
+        Outcome::Fail => "You cannot make sense of the ground here. The ground is not helping.".into(),
         Outcome::CritFail => {
             let damage = combat::roll_dice(anomaly.dice, rng);
             run.hp -= damage;
-            format!("You step wrong reading it. {damage} damage.")
+            format!("You step wrong reading it, and the {} takes {damage} out of you.", anomaly.name)
         }
     }
 }
@@ -328,15 +328,15 @@ pub(crate) fn throw_bolt(
     rng: &mut Rng,
 ) -> String {
     if !run.take_item("bolt", 1) {
-        return "You are out of bolts.".into();
+        return "You are out of bolts. Now you will find out what you are made of.".into();
     }
     // No check — the bolt resolves the next step's gamble in advance (GDD §6).
     let safe = rng.roll(100) > anomaly.danger;
     fields.entry(area_id).bolt_safe = Some(safe);
     if safe {
-        "The bolt arcs over and lands quiet. The way is clear.".into()
+        "The bolt arcs over and lands quiet. The way is clear, for now.".into()
     } else {
-        "The bolt vanishes with a crack. Not that way.".into()
+        "The bolt vanishes with a crack, and the crack is the Zone clearing its throat. Not that way.".into()
     }
 }
 
@@ -357,7 +357,7 @@ pub(crate) fn push_through(
 
     if known_safe {
         return (
-            format!("You walk the line you found through the {}.", anomaly.name),
+            format!("You walk the line you found through the {}, one foot after the other, holding your breath.", anomaly.name),
             Some(anomaly.beyond.clone()),
         );
     }
@@ -367,12 +367,12 @@ pub(crate) fn push_through(
         let damage = combat::roll_dice(anomaly.dice, rng);
         run.hp -= damage;
         (
-            format!("The {} catches you and throws you back. {damage} damage.", anomaly.name),
+            format!("The {} catches you and throws you back where you stood, as if it were keeping your place. {damage} damage.", anomaly.name),
             None,
         )
     } else {
         (
-            format!("You cross the {} on luck alone.", anomaly.name),
+            format!("You cross the {} on luck alone, and luck is the one thing in here you cannot reload.", anomaly.name),
             Some(anomaly.beyond.clone()),
         )
     }
@@ -386,7 +386,7 @@ pub(crate) fn take_artifact(
     fields: &mut Fields,
 ) -> String {
     if fields.get(area_id).taken {
-        return "There is nothing left in it now.".into();
+        return "There is nothing left in it now. You already took the only thing it had.".into();
     }
     let state = fields.entry(area_id);
     state.artifact = false;

@@ -75,7 +75,7 @@ Zone(
                 ("The farm track", Travel("farm")),
                 ("Wade east", Travel("acid_pools")),
                 ("South, to the tents", Travel("freedom_camp")),
-                ("Look", Say("The water is warmer than the air. Nothing about that is good.")),
+                ("Look", Say("The water is warmer than the air. It never is, when it is warm.")),
             ],
             secrets: {
                 'P': Secret(action: Travel("pipes"), gate: Some(Check(StalkerLore, -10))),
@@ -104,7 +104,7 @@ Zone(
                 ("Back to the reeds", Travel("swamp")),
                 ("The machine yard", Travel("burner_yard")),
                 ("Search the yard", Give("toolkit", 1)),
-                ("Look", Say("The ground has been turned over, and not by a plough.")),
+                ("Look", Say("The ground has been turned over, and not by a plough, and nothing was planted.")),
             ],
             secrets: {
                 'C': Secret(action: Travel("cellar"), gate: Some(Check(StalkerLore, 0))),
@@ -161,7 +161,7 @@ Zone(
                 ("Talk to Kuzma", Talk("kuzma")),
                 ("Back to the tents", Travel("freedom_camp")),
                 ("The dead town road", Travel("dead_town")),
-                ("Look", Say("Everything here ended up here. Cars, kit, men.")),
+                ("Look", Say("Everything here ended up here. Cars, kit, men. It all ends up here.")),
             ],
             secrets: {
                 'D': Secret(action: Travel("bandit_den"), gate: Some(Check(Lockpick, -10))),
@@ -339,8 +339,8 @@ Zone(
             shelter: false,
             encounter: Some("flesh"),
             menu: [
-                ("Look", Say("Black water, and the pumps long dead.")),
-                ("Search", Say("Rust, and rust under the rust.")),
+                ("Look", Say("Black water, and the pumps long dead, and nothing to drink but it.")),
+                ("Search", Say("Rust, and rust under the rust, and under that, the same rust.")),
                 ("Take the service track", Travel("road")),
                 ("Back through the field", Travel("field")),
             ],
@@ -401,7 +401,7 @@ Zone(
                 ("The lab gate", Travel("lab_gate")),
                 ("The antenna road", Travel("radar")),
                 ("Back to the junkyard", Travel("junkyard")),
-                ("Look", Say("Every window on the street is standing open.")),
+                ("Look", Say("Every window on the street is standing open, and not one has been shut since.")),
             ],
             secrets: {
                 'C': Secret(action: Travel("church"), gate: Some(Check(StalkerLore, -15))),
